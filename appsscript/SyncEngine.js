@@ -71,23 +71,49 @@ function processTableDataSync(tableName, cfg, sourceRows, targetState, sourceId,
   }
 
   const requests = [];
-  const currentData = targetState.values.get(sheetName) || [];
-  const headers = currentData[0] || [];
-  const width = headers.length;
+  let currentData = targetState.values.get(sheetName) || [];
+  let headers = [];
+  let width = 0;
 
-  if (currentData.length > 0) {
-    const firstCol = headers[0] != null ? String(headers[0]).trim() : "";
-    const expectedCols = (sourceRows[0] && sourceRows[0].length) ? sourceRows[0].length + 1 : 1;
-    if (firstCol !== "Source_ID" || headers.length !== expectedCols) {
-      throw new Error("Target sheet '" + sheetName + "' header consistency failed: expected first column 'Source_ID' and " + expectedCols + " columns.");
+  const isArrayOfObjects = currentData.length > 0 &&
+    typeof currentData[0] === "object" &&
+    currentData[0] !== null &&
+    !Array.isArray(currentData[0]);
+
+  if (isArrayOfObjects) {
+    const requiredKeys = ["Source_ID"].concat(sourceRows[0] || []);
+    for (let r = 0; r < currentData.length; r++) {
+      const row = currentData[r];
+      for (let k = 0; k < requiredKeys.length; k++) {
+        const key = requiredKeys[k];
+        if (!Object.prototype.hasOwnProperty.call(row, key)) {
+          throw new Error("Target sheet '" + sheetName + "' row " + (r + 1) + " missing required column '" + key + "'.");
+        }
+      }
     }
-    const targetHeaderNames = headers.slice(1);
-    const sourceHeaderNames = sourceRows[0] || [];
-    for (var i = 0; i < targetHeaderNames.length; i++) {
-      var targetVal = (targetHeaderNames[i] != null ? String(targetHeaderNames[i]).trim() : "");
-      var sourceVal = (sourceHeaderNames[i] != null ? String(sourceHeaderNames[i]).trim() : "");
-      if (targetVal !== sourceVal) {
-        throw new Error("Source header mismatch in table '" + sheetName + "': column " + (i + 1) + " expected '" + targetVal + "', got '" + sourceVal + "'.");
+    headers = requiredKeys.slice();
+    width = headers.length;
+    const rowsAsArrays = currentData.map(row =>
+      headers.map(col => (row[col] !== undefined && row[col] !== null ? row[col] : ""))
+    );
+    currentData = [headers].concat(rowsAsArrays);
+  } else {
+    headers = currentData[0] || [];
+    width = headers.length;
+    if (currentData.length > 0) {
+      const firstCol = headers[0] != null ? String(headers[0]).trim() : "";
+      const expectedCols = (sourceRows[0] && sourceRows[0].length) ? sourceRows[0].length + 1 : 1;
+      if (firstCol !== "Source_ID" || headers.length !== expectedCols) {
+        throw new Error("Target sheet '" + sheetName + "' header consistency failed: expected first column 'Source_ID' and " + expectedCols + " columns.");
+      }
+      const targetHeaderNames = headers.slice(1);
+      const sourceHeaderNames = sourceRows[0] || [];
+      for (var i = 0; i < targetHeaderNames.length; i++) {
+        var targetVal = (targetHeaderNames[i] != null ? String(targetHeaderNames[i]).trim() : "");
+        var sourceVal = (sourceHeaderNames[i] != null ? String(sourceHeaderNames[i]).trim() : "");
+        if (targetVal !== sourceVal) {
+          throw new Error("Source header mismatch in table '" + sheetName + "': column " + (i + 1) + " expected '" + targetVal + "', got '" + sourceVal + "'.");
+        }
       }
     }
   }
@@ -301,13 +327,13 @@ function ensureInfrastructure(ssId, config, targetState, sourceValuesMap, settin
 }
 
 /**
- * Fetches sheet metadata and values for the given sheet names.
+ * Fetches sheet metadata and values for sheets from config. Uses getTableDataByName(tableName) per config entry; fallback A:columnToLetter when table not found.
  * @param {string} ssId - Spreadsheet ID.
- * @param {Array<string>} sheetNamesToFetch - Sheet names to load.
+ * @param {Object} config - Table config from getDataRangesConfig (sourceName -> { range, not_empty_column, sheet_name }).
  * @param {number} maxRetries - Retry count.
  * @returns {{ sheets: Map, values: Map }}
  */
-function fetchSmartTargetState(ssId, sheetNamesToFetch, maxRetries) {
+function fetchSmartTargetState(ssId, config, maxRetries) {
   const meta = callWithRetry(() => Sheets.Spreadsheets.get(ssId, {
     fields: "sheets(properties(sheetId,title,gridProperties),tables)"
   }), maxRetries);
@@ -323,21 +349,24 @@ function fetchSmartTargetState(ssId, sheetNamesToFetch, maxRetries) {
     });
   });
 
-  const validNames = sheetNamesToFetch.filter(name => state.sheets.has(name));
-  if (validNames.length > 0) {
-    const ranges = validNames.map(name => name + "!A:Z");
-    try {
-      const resp = callWithRetry(() => Sheets.Spreadsheets.Values.batchGet(ssId, { ranges: ranges }), maxRetries);
-      resp.valueRanges.forEach(vr => {
-        if (vr.range) {
-          const name = vr.range.split("!")[0].replace(/'/g, "");
-          state.values.set(name, vr.values || []);
-        }
-      });
-    } catch (e) {
-      var errMsg = e && e.message ? e.message : String(e);
-      console.warn("Smart fetch warning: " + errMsg);
-      if (e && e.stack) console.error(e.stack);
+  for (const [tableName, cfg] of Object.entries(config)) {
+    const sheetName = cfg.sheet_name;
+    if (!state.sheets.has(sheetName)) continue;
+    const sheetInfo = state.sheets.get(sheetName);
+    const objData = getTableDataByName(tableName, maxRetries, ssId, meta);
+    if (objData !== null) {
+      state.values.set(sheetName, objData);
+    } else {
+      const endCol = (sheetInfo && sheetInfo.grid && sheetInfo.grid.columnCount) ? sheetInfo.grid.columnCount : 26;
+      const range = "'" + sheetName + "'!A:" + columnToLetter(endCol);
+      try {
+        const resp = callWithRetry(() => Sheets.Spreadsheets.Values.get(ssId, range), maxRetries);
+        state.values.set(sheetName, resp.values || []);
+      } catch (e) {
+        var errMsg = e && e.message ? e.message : String(e);
+        console.warn("Smart fetch fallback for " + sheetName + ": " + errMsg);
+        if (e && e.stack) console.error(e.stack);
+      }
     }
   }
   return state;

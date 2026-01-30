@@ -25,14 +25,35 @@ function callWithRetry(apiFn, maxRetries) {
   }
 }
 
-function getTableDataByName(targetTableName, maxRetries) {
+/**
+ * Pobiera dane tabeli po nazwie tabeli (named table). Opcjonalnie przyjmuje ssId i meta, by uniknąć ponownego pobierania metadanych.
+ * @param {string} targetTableName - Nazwa tabeli (np. "urls").
+ * @param {number} [maxRetries=3] - Liczba ponownych prób API.
+ * @param {string} [ssId] - ID arkusza; gdy z meta – używane zamiast aktywnego arkusza.
+ * @param {Object} [meta] - Odpowiedź Sheets.Spreadsheets.get(ssId, { fields: 'sheets(properties,tables)' }); gdy brak – pobierana przy podanym ssId.
+ * @returns {Array<Object>|null} Tablica obiektów (wiersz = klucze = nagłówki), lub null gdy tabela nie znaleziona / błąd.
+ */
+function getTableDataByName(targetTableName, maxRetries, ssId, meta) {
   if (maxRetries == null) maxRetries = 3;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ssId = ss.getId();
+  var resolvedSsId = ssId;
+  var response = meta;
+  if (!resolvedSsId) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    resolvedSsId = ss.getId();
+  }
+  if (!response) {
+    try {
+      response = callWithRetry(function() {
+        return Sheets.Spreadsheets.get(resolvedSsId, { fields: 'sheets(properties,tables)' });
+      }, maxRetries);
+    } catch (e) {
+      var errMsg = e && e.message ? e.message : String(e);
+      console.error('getTableDataByName meta fetch: ' + errMsg);
+      if (e && e.stack) console.error(e.stack);
+      return null;
+    }
+  }
   try {
-    var response = callWithRetry(function() {
-      return Sheets.Spreadsheets.get(ssId, { fields: 'sheets(properties,tables)' });
-    }, maxRetries);
     var foundTable = null, sheetName = '';
     if (response.sheets) {
       for (var i = 0; i < response.sheets.length; i++) {
@@ -60,7 +81,7 @@ function getTableDataByName(targetTableName, maxRetries) {
     var endCol = rangeData.endColumnIndex || startCol;
     var a1Range = "'" + sheetName + "'!" + convertToA1(headerRowIndex, startCol, endRow, endCol);
     var valueResponse = callWithRetry(function() {
-      return Sheets.Spreadsheets.Values.get(ssId, a1Range);
+      return Sheets.Spreadsheets.Values.get(resolvedSsId, a1Range);
     }, maxRetries);
     var values = valueResponse.values;
     if (!values || values.length === 0) return [];

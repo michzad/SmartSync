@@ -1,2 +1,3 @@
 TODO:
 - problem z datami - dobrze byloby ustawic column type, a z drugiej strony powoduje to konflikt z formatem skryptu
+- <br/><br/>Aby nazwy tabel były zgodne z formułami, muszą one spełniać określone reguły, np. nie mogą zaczynać się od cyfry ani zawierać znaków specjalnych. <a target="_blank" href="https://support.google.com/docs/answer/14239833#zippy=%2Ccreate-table-names:~:text=pre%2Dbuilt%20blocks.-,Set%20up%20your%20table,-Create%20table%20names">Więcej informacji</a>

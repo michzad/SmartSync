@@ -56,9 +56,7 @@ function runAutoSync(options) {
   if (!requiredKeys.every(function(k) { return Object.prototype.hasOwnProperty.call(urlData[0], k); })) {
     throw new Error("Control table header consistency failed: expected columns " + requiredKeys.join(", ") + ". Check the urls sheet row 1.");
   }
-  var sheetNames = [];
-  for (var k in config) sheetNames.push(config[k].sheet_name);
-  var targetState = fetchSmartTargetState(ssId, sheetNames, settings.maxApiRetries);
+  var targetState = fetchSmartTargetState(ssId, config, settings.maxApiRetries);
   var queue = buildSyncQueue(urlData, targetState, config, settings);
   if (queue.length === 0) { console.log("All up to date."); return; }
   ensureLogSheetViaApi(ssId, settings.logSheetName, settings.maxApiRetries);
@@ -85,6 +83,18 @@ function runAutoSync(options) {
     }
     Utilities.sleep(settings.sleepTimeMs);
   }
+}
+
+/**
+ * Zwraca Source_ID z wiersza destination: obsługuje zarówno tablicę obiektów (row.Source_ID), jak i tablicę tablic (row[0]).
+ * @param {Object|Array} row - Wiersz z targetState.values (obiekt z kluczami lub tablica).
+ * @returns {string|null} Wartość Source_ID lub null.
+ */
+function getSourceIdFromRow(row) {
+  if (!row) return null;
+  if (typeof row === "object" && !Array.isArray(row) && row.Source_ID != null) return String(row.Source_ID);
+  if (Array.isArray(row) && row[0] != null) return String(row[0]);
+  return null;
 }
 
 /**
@@ -130,8 +140,11 @@ function buildSyncQueue(urlData, targetState, config, settings) {
   for (var k in config) {
     var sheetName = config[k].sheet_name;
     var data = targetState.values.get(sheetName) || [];
-    for (var j = 1; j < data.length; j++) {
-      if (data[j] && data[j][0] != null) destIds.add(String(data[j][0]));
+    var isArrayOfArrays = data.length > 0 && Array.isArray(data[0]);
+    var startIdx = isArrayOfArrays ? 1 : 0;
+    for (var j = startIdx; j < data.length; j++) {
+      var id = getSourceIdFromRow(data[j]);
+      if (id) destIds.add(id);
     }
   }
 
