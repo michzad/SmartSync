@@ -1,0 +1,5 @@
+# clasp
+.clasp.json
+
+# deploy
+deploy.ps1
