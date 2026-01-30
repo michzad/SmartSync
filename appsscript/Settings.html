@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--primary:#1a73e8;--bg:#f8f9fa;--card:#fff;--text:#3c4043;--border:#dadce0;}
+body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text);margin:0;padding:0;height:100vh;overflow:hidden;}
+#settingsForm{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+.container{flex:1 1 0;min-height:0;overflow-y:auto;padding:20px;padding-bottom:80px;}
+.warning-card{background:#fce8e6;border:1px solid #c5221f;color:#c5221f;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:none;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(60,64,67,0.3);}
+.section-title{font-size:14px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:16px;}
+.form-group{margin-bottom:16px;}
+label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;color:#5f6368;}
+input[type="text"],input[type="number"],select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;font-size:14px;box-sizing:border-box;}
+.sys-table{width:100%;border-collapse:collapse;}
+.sys-table th{text-align:left;font-size:11px;color:#80868b;padding-bottom:8px;}
+.sys-table td{padding:8px 4px;}
+.stat-icon{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;}
+.stat-ok .stat-icon{background:#0f9d58;}
+.stat-empty .stat-icon{background:#ea8600;}
+.stat-missing .stat-icon{background:#9aa0a6;}
+.stat-icon-wrap{display:flex;align-items:center;gap:6px;}
+.stat-icon-wrap .stat-icon{flex-shrink:0;}
+.stat-placeholder .stat-icon{background:transparent;border:1px dashed #dadce0;}
+.toggle-switch{position:relative;display:inline-block;width:34px;height:18px;}
+.toggle-switch input{display:none;}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;border-radius:34px;transition:.4s;}
+.slider:before{position:absolute;content:"";height:14px;width:14px;left:2px;bottom:2px;background:white;border-radius:50%;transition:.4s;}
+input:checked+.slider{background:var(--primary);}
+input:checked+.slider:before{transform:translateX(16px);}
+.schedule-list{display:block;}
+.schedule-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;max-width:100%;box-sizing:border-box;}
+.schedule-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;}
+.schedule-row+.schedule-row{margin-top:8px;}
+.schedule-card input[type="number"]{max-width:52px;width:100%;padding:6px 8px;font-size:12px;box-sizing:border-box;}
+.schedule-card select{max-width:70px;padding:6px 8px;font-size:12px;box-sizing:border-box;}
+.schedule-card .schedule-actions button{padding:6px 10px;font-size:12px;}
+.schedule-desc{font-size:12px;color:#5f6368;margin:-8px 0 12px 0;}
+.execute-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;}
+.execute-row input[type="number"]{max-width:64px;}
+.execute-max-age-row input[type="number"]{max-width:52px;}
+.execute-buttons{display:flex;gap:8px;margin-top:8px;}
+.execute-outcome{min-height:2.5em;margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);font-size:12px;color:var(--text);white-space:pre-wrap;word-break:break-word;}
+.execute-outcome:empty{display:none;}
+.execute-outcome.error{background:#fce8e6;border-color:#c5221f;color:#c5221f;}
+.execute-disabled{opacity:0.6;pointer-events:none;}
+.help-icon{display:inline-flex;align-items:center;justify-content:center;width:1.1em;height:1.1em;margin-left:4px;border-radius:50%;background:#80868b;color:#fff;font-size:11px;font-weight:700;cursor:help;vertical-align:middle;}
+.footer{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);padding:16px 24px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0;}
+.footer-buttons{display:flex;align-items:center;gap:12px;}
+.footer-doc-link{font-size:11px;color:#80868b;text-decoration:none;}
+.footer-doc-link:hover{color:#5f6368;text-decoration:underline;}
+button{padding:8px 16px;border-radius:4px;font-size:13px;font-weight:500;cursor:pointer;border:none;}
+button.primary{background:var(--primary);color:#fff;}
+button.secondary{background:transparent;color:var(--primary);}
+button.check-btn{background:#e8f0fe;color:#1a73e8;}
+button:disabled{opacity:0.6;cursor:not-allowed;}
+.row{display:flex;gap:12px;}
+.col{flex:1;}
+.data-range-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;box-sizing:border-box;}
+.data-range-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin-bottom:8px;}
+.data-range-row .field-label{flex:0 0 120px;font-size:12px;font-weight:500;margin-bottom:4px;}
+.data-range-row .field-desc{font-size:11px;color:#5f6368;margin-top:2px;}
+.data-range-row input[type="text"]{flex:1;min-width:120px;padding:6px 8px;font-size:12px;}
+.validation-warning{display:block;font-size:11px;color:#c5221f;margin-top:4px;}
+.required-hint{color:#80868b;font-size:11px;margin-top:8px;}
+.setup-details{margin-bottom:16px;}
+.setup-details summary{cursor:pointer;font-weight:700;color:var(--primary);padding:4px 0;}
+.setup-section{margin-top:8px;}
+.setup-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;}
+.logs-section{margin-top:16px;}
+.section-title .stat-placeholder{vertical-align:middle;}
+.section-title .stat-icon-wrap{display:inline-flex;}
+.section-title-link{color:var(--primary);text-decoration:none;}
+.section-title-link:hover{text-decoration:underline;}
+.section-title-link.no-link{color:inherit;cursor:default;pointer-events:none;}
+</style>
+</head>
+<body>
+<form id="settingsForm">
+<div class="container">
+<div id="serviceWarning" class="warning-card"><div id="warningText"></div></div>
+<div class="card" id="executeCard">
+<div class="section-title">Execute</div>
+<div class="form-group">
+<div class="schedule-row execute-max-age-row">Max age: <input type="number" id="executeMaxDays" name="executeMaxDays" min="0" value="0" placeholder="0" aria-label="Max age in days"> days <span class="help-icon" title="Leave 0 to check all.">?</span></div>
+</div>
+<div class="execute-buttons">
+<button type="button" class="check-btn" id="executeCheckBtn" onclick="runCheckLastModified()" title="Run last modified check">Check</button>
+<button type="button" class="primary" id="executeSyncBtn" onclick="runSync()" title="Run sync">Sync</button>
+</div>
+<div id="executeOutcome" class="execute-outcome" aria-live="polite"></div>
+</div>
+<div class="card" id="syncSchedulesCard">
+<div class="section-title">Sync Schedules <span class="help-icon" title="When to run sync: only sources older than Max age (days) are checked. Active schedules create time-based triggers.">?</span></div>
+<div id="scheduleBody" class="schedule-list"></div>
+<button type="button" class="secondary" onclick="addScheduleRow()">+ Add Schedule</button>
+<input type="hidden" id="lmSchedulesJson" name="lmSchedulesJson">
+</div>
+<details class="setup-details"><summary>Setup</summary>
+<div class="setup-section">
+<div class="card" id="sourceFilesCard">
+<div class="section-title"><a id="sourceFilesLink" href="#" class="section-title-link sheet-link" onclick="openSheetInCurrentTab(this); return false;">Source Files</a> <span id="stat-control" class="stat-placeholder" title=""></span></div>
+<div class="setup-row"><button type="button" class="check-btn" id="checkControlBtn" onclick="checkStatusOnly()" title="Refresh status">Check</button> <button type="button" class="check-btn" id="createControlBtn" onclick="createMissing()" title="Create control table">Create</button></div>
+</div>
+<div class="card" id="dataRangesCard">
+<div class="section-title">Data Ranges <span id="stat-setup" class="stat-placeholder" title=""></span></div>
+<div id="dataRangesBody" class="schedule-list"></div>
+<button type="button" class="secondary" onclick="addDataRangeRow()">+ Add Data Range</button>
+<p class="required-hint">* required</p>
+<input type="hidden" id="dataRangesJson" name="dataRangesJson">
+</div>
+</div>
+</details>
+<details class="setup-details"><summary>Advanced Options</summary><div class="setup-section"><div class="card" id="logsCard"><div class="section-title"><a id="logsLink" href="#" class="section-title-link sheet-link" onclick="openSheetInCurrentTab(this); return false;">Logs</a> <span id="stat-logs" class="stat-placeholder" title=""></span></div><div class="setup-row"><button type="button" class="check-btn" id="checkLogsBtn" onclick="checkStatusOnly()" title="Refresh status">Check</button> <button type="button" class="check-btn" id="createLogsBtn" onclick="createMissingLogs()" title="Create logs table">Create</button></div><div class="form-group"><label for="logLevel">Logs level</label><select id="logLevel" name="logLevel"><option value="None">None</option><option value="Errors">Errors</option><option value="Warnings">Warnings</option><option value="Basic">Basic</option><option value="All">All</option></select></div><div class="form-group"><label for="maxLogRows">Max log rows</label><input type="number" id="maxLogRows" name="maxLogRows" min="0" placeholder="0" title="0 = no limit"><span class="required-hint">0 = no limit</span></div></div><div class="card" id="performanceCard"><div class="section-title">Performance</div><div class="row"><div class="col form-group"><label>Sleep Time (ms)</label><input type="number" id="sleepTimeMs" name="sleepTimeMs" min="0" placeholder="10"></div><div class="col form-group"><label>API Retries</label><input type="number" id="maxApiRetries" name="maxApiRetries" min="0" max="10" placeholder="3"></div></div></div></div></details>
+</div>
+<div class="footer">
+<div class="footer-buttons">
+<div id="versionContainer" title="Version"></div>
+<button type="button" class="secondary" onclick="google.script.host.close()">Close</button>
+<button type="button" id="saveBtn" class="primary action" onclick="saveSettings()">Save Changes</button>
+</div>
+<a id="manualLink" href="#" target="_blank" rel="noopener" class="footer-doc-link">SmartSync Documentation</a>
+</div>
+</form>
+<script>
+var schedules=[];
+var dataRanges=[];
+/** Per-row: show "Name is required" only after blur or save attempt, not by default. */
+var dataRangesNameTouched=[];
+/** Name: whitelist a-z, A-Z, 0-9, _ only; 1-31 chars after trim. */
+function validateName(name){
+  var s=(name!=null?String(name):'').trim();
+  if(s.length===0)return{valid:false,message:'Name is required.'};
+  if(s.length>31)return{valid:false,message:'Name may only contain letters (a–z, A–Z), digits (0–9), and underscore (_).'};
+  if(!/^[a-zA-Z0-9_]+$/.test(s))return{valid:false,message:'Name may only contain letters (a–z, A–Z), digits (0–9), and underscore (_).'};
+  return{valid:true};
+}
+function validateSourceRange(range){
+  var s=(range!=null?String(range):'').trim();
+  return s.length>0?{valid:true}:{valid:false,message:'Source Range is required.'};
+}
+function hasDataRangeValidationErrors(){
+  for(var i=0;i<dataRanges.length;i++){
+    if(!validateName(dataRanges[i].sourceName).valid)return true;
+    if(!validateSourceRange(dataRanges[i].range).valid)return true;
+  }
+  return false;
+}
+function updateSaveButtonState(){
+  var btn=document.getElementById('saveBtn');
+  if(btn)btn.disabled=hasDataRangeValidationErrors();
+}
+function updateDataRange(index,field,value){
+  if(!dataRanges[index])return;
+  dataRanges[index][field]=value;
+  var card=document.querySelector('#dataRangesBody .data-range-card[data-index="'+index+'"]');
+  if(!card)return;
+  var nameWarn=card.querySelector('[data-warning="name"]');
+  var rangeWarn=card.querySelector('[data-warning="range"]');
+  if(field==='sourceName'&&nameWarn){
+    var r=validateName(value);
+    var showNameWarn=!r.valid&&(value.length>0||dataRangesNameTouched[index]);
+    nameWarn.textContent=r.valid?'':r.message;
+    nameWarn.style.display=showNameWarn?'block':'none';
+  }
+  if(field==='range'&&rangeWarn){
+    var r2=validateSourceRange(value);
+    rangeWarn.textContent=r2.valid?'':r2.message;
+    rangeWarn.style.display=r2.valid?'none':'block';
+  }
+  updateSaveButtonState();
+}
+function addDataRangeRow(){
+  dataRanges.push({sourceName:'',range:'',not_empty_column:''});
+  dataRangesNameTouched.push(false);
+  renderDataRanges();
+  updateSaveButtonState();
+}
+function removeDataRangeRow(index){
+  dataRanges.splice(index,1);
+  dataRangesNameTouched.splice(index,1);
+  renderDataRanges();
+  updateSaveButtonState();
+}
+function markNameTouched(index){
+  dataRangesNameTouched[index]=true;
+  updateDataRange(index,'sourceName',dataRanges[index].sourceName);
+}
+function escapeAttr(s){return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderDataRanges(){
+  var listEl=document.getElementById('dataRangesBody');
+  if(!listEl)return;
+  listEl.innerHTML='';
+  var nameHelp='Name for the sheet and table. Only letters (a–z, A–Z), digits (0–9), and underscore (_). 1–31 characters.';
+  var rangeHelp='A1 range in the source sheet (e.g. Sheet1!A1:D).';
+  var requiredColHelp='Optional. Column (e.g. A) used to trim empty rows from the bottom.';
+  dataRanges.forEach(function(r,index){
+    var card=document.createElement('div');
+    card.className='data-range-card';
+    card.setAttribute('data-index',String(index));
+    var nameRes=validateName(r.sourceName);
+    var rangeRes=validateSourceRange(r.range);
+    var nameShow=!nameRes.valid&&((r.sourceName||'').length>0||dataRangesNameTouched[index]);
+    var nameWarnHtml='<span class="validation-warning" data-warning="name"'+(nameShow?'':' style="display:none"')+'>'+escapeAttr(nameRes.message)+'</span>';
+    var rangeWarnHtml='<span class="validation-warning" data-warning="range"'+(rangeRes.valid?' style="display:none"':'')+'>'+escapeAttr(rangeRes.message)+'</span>';
+    card.innerHTML=
+      '<div class="data-range-row"><div class="field-label">Name * <span class="help-icon" title="'+escapeAttr(nameHelp)+'">?</span></div><div style="flex:1;min-width:120px"><input type="text" value="'+escapeAttr(r.sourceName)+'" oninput="updateDataRange('+index+',\'sourceName\',this.value)" onchange="updateDataRange('+index+',\'sourceName\',this.value)" onblur="markNameTouched('+index+')" placeholder="sheet/table name" aria-label="Name"></div></div>'+
+      nameWarnHtml+
+      '<div class="data-range-row"><div class="field-label">Source Range * <span class="help-icon" title="'+escapeAttr(rangeHelp)+'">?</span></div><div style="flex:1;min-width:120px"><input type="text" value="'+escapeAttr(r.range)+'" oninput="updateDataRange('+index+',\'range\',this.value)" onchange="updateDataRange('+index+',\'range\',this.value)" placeholder="e.g. Sheet1!A1:D" aria-label="Source Range"></div></div>'+
+      rangeWarnHtml+
+      '<div class="data-range-row"><div class="field-label">Required Column <span class="help-icon" title="'+escapeAttr(requiredColHelp)+'">?</span></div><div style="flex:1;min-width:120px"><input type="text" value="'+escapeAttr(r.not_empty_column)+'" onchange="updateDataRange('+index+',\'not_empty_column\',this.value)" placeholder="e.g. A" aria-label="Required Column"></div></div>'+
+      '<div class="schedule-row schedule-actions" style="margin-top:8px"><button type="button" class="secondary" onclick="removeDataRangeRow('+index+')" title="Remove">Remove</button></div>';
+    listEl.appendChild(card);
+  });
+}
+window.onload=function(){
+  google.script.run.withSuccessHandler(populateForm).withFailureHandler(function(err){showWarning(err);}).runLibrary('getUserConfig',null,true);
+  google.script.run.withSuccessHandler(function(v){document.getElementById('versionContainer').title='Library Version: '+v;}).runLibrary('getLibraryVersion',null,true);
+  google.script.run.withSuccessHandler(function(url){var el=document.getElementById('manualLink');if(el){el.href=url||'#';el.style.display=url?'':'none';}}).withFailureHandler(function(){}).runLibrary('getManualUrl',null,true);
+};
+var STATUS_TITLES={ok:'OK',empty:'Sheet and table exist, no data',missing:'Missing (no table)'};
+/** Data Ranges (setup) status titles – from settings only, not sheet/table. */
+var SETUP_STATUS_TITLES={ok:'OK',empty:'No data ranges configured',missing:'Add data ranges or fix validation'};
+function applyStatus(status){
+  if(!status)return;
+  var ids=['control','logs','setup'];
+  ids.forEach(function(key){
+    var el=document.getElementById('stat-'+key);
+    if(!el)return;
+    var s=status[key]||'missing';
+    el.className='stat-'+s;
+    el.title=(key==='setup'?(SETUP_STATUS_TITLES[s]||s):(STATUS_TITLES[s]||s));
+    el.innerHTML='<span class="stat-icon-wrap"><span class="stat-icon"></span></span>';
+  });
+  updateComponentButton(status);
+  applySheetLinks(status);
+  var allOk=status.control==='ok'&&status.logs==='ok'&&status.setup==='ok';
+  var execCard=document.getElementById('executeCard');
+  var schedCard=document.getElementById('syncSchedulesCard');
+  if(execCard){execCard.style.display='block';execCard.classList.toggle('execute-disabled',!allOk);}
+  if(schedCard)schedCard.style.display='block';
+}
+/** Create buttons always visible; disabled (grayed out) when table already exists. */
+function updateComponentButton(status){
+  var ctrlBtn=document.getElementById('createControlBtn');
+  var logsBtn=document.getElementById('createLogsBtn');
+  var controlExists=status.control==='ok'||status.control==='empty';
+  var logsExists=status.logs==='ok'||status.logs==='empty';
+  if(ctrlBtn){ctrlBtn.disabled=controlExists;}
+  if(logsBtn){logsBtn.disabled=logsExists;}
+}
+/** Open sheet link in current tab (no new window). Used by Source Files and Logs links. */
+function openSheetInCurrentTab(el){
+  if(!el||!el.href)return;
+  var h=el.href;
+  if(h==='#'||h.indexOf('#gid=')===-1)return;
+  try{window.top.location.href=h;}catch(e){}
+}
+/** Set Source Files and Logs link hrefs from status; add no-link class when URL missing. */
+function applySheetLinks(status){
+  var srcLink=document.getElementById('sourceFilesLink');
+  var logsLink=document.getElementById('logsLink');
+  if(srcLink){
+    if(status.sourceFilesUrl){srcLink.href=status.sourceFilesUrl;srcLink.classList.remove('no-link');}
+    else{srcLink.href='#';srcLink.classList.add('no-link');}
+  }
+  if(logsLink){
+    if(status.logsUrl){logsLink.href=status.logsUrl;logsLink.classList.remove('no-link');}
+    else{logsLink.href='#';logsLink.classList.add('no-link');}
+  }
+}
+function populateForm(config){
+  if(!config)return;
+  function setVal(id,val){if(val!==undefined&&val!==null){var el=document.getElementById(id);if(el)el.value=val;}}
+  setVal('sleepTimeMs',config.sleepTimeMs);setVal('maxApiRetries',config.maxApiRetries);
+  var logLevel=config.logLevel;if(logLevel&&['None','Errors','Warnings','Basic','All'].indexOf(logLevel)!==-1)setVal('logLevel',logLevel);else setVal('logLevel','Basic');
+  var maxLogRows=config.maxLogRows;setVal('maxLogRows',(maxLogRows!= null&&!isNaN(Number(maxLogRows))&&Number(maxLogRows)>=0)?Number(maxLogRows):0);
+  if(config.lastModSchedules&&Array.isArray(config.lastModSchedules))schedules=config.lastModSchedules;else schedules=[{maxAgeDays:7,intervalVal:1,intervalUnit:"Hours",active:false}];
+  if(config.dataRanges&&Array.isArray(config.dataRanges)){dataRanges=config.dataRanges.map(function(r){return{sourceName:r.sourceName||'',range:r.range||'',not_empty_column:r.not_empty_column||''};});dataRangesNameTouched=dataRanges.map(function(){return false;});}
+  else{dataRanges=[];dataRangesNameTouched=[];}
+  renderSchedules();
+  renderDataRanges();
+  updateSaveButtonState();
+  if(config.lastStatus&&typeof config.lastStatus==='object'&&config.lastStatus.control!==undefined){applyStatus(config.lastStatus);}
+  else{applyStatus({control:'missing',logs:'missing',setup:'missing'});}
+  google.script.run.withSuccessHandler(function(status){
+    applyStatus(status);
+    google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).runLibrary('persistLastStatus',status,true);
+  }).withFailureHandler(function(){}).runLibrary('getSystemStatus',null,true);
+}
+function renderSchedules(){
+  var listEl=document.getElementById('scheduleBody');
+  if(!listEl)return;
+  listEl.innerHTML='';
+  schedules.forEach(function(sch,index){
+    var maxAge=Number(sch.maxAgeDays);
+    if(isNaN(maxAge))maxAge=0;
+    var intervalVal=Number(sch.intervalVal);
+    if(isNaN(intervalVal)||intervalVal<1)intervalVal=1;
+    var unit=sch.intervalUnit||'Hours';
+    var card=document.createElement('div');
+    card.className='schedule-card';
+    card.setAttribute('data-index',String(index));
+    var row1='<div class="schedule-row">Max age: <input type="number" value="'+maxAge+'" onchange="updateSchedule('+index+',\'maxAgeDays\',this.value)" min="0" aria-label="Max age in days"> days <span class="help-icon" title="Leave 0 to check all.">?</span></div>';
+    var row2='<div class="schedule-row">Run every <input type="number" value="'+intervalVal+'" onchange="updateSchedule('+index+',\'intervalVal\',this.value)" min="1" aria-label="Interval value" title="Interval value"> '+
+      '<select onchange="updateSchedule('+index+',\'intervalUnit\',this.value)" aria-label="Interval unit" title="Interval unit">'+
+      '<option value="Minutes"'+(unit==='Minutes'?' selected':'')+'>Min</option>'+
+      '<option value="Hours"'+(unit==='Hours'?' selected':'')+'>Hrs</option>'+
+      '<option value="Days"'+(unit==='Days'?' selected':'')+'>Days</option>'+
+      '<option value="Weeks"'+(unit==='Weeks'?' selected':'')+'>Wks</option>'+
+      '</select></div>';
+    var row3='<div class="schedule-row">If Active <label class="toggle-switch"><input type="checkbox" '+(sch.active?'checked':'')+' onchange="updateSchedule('+index+',\'active\',this.checked)"><span class="slider"></span></label></div>';
+    var row4='<div class="schedule-row schedule-actions">'+
+      '<button type="button" class="check-btn" onclick="runScheduleNow('+index+',this)" title="Run this schedule now">Run</button> '+
+      '<button type="button" class="secondary" onclick="removeSchedule('+index+')" title="Remove schedule">Remove</button>'+
+      '</div>';
+    card.innerHTML=row1+row2+row3+row4;
+    listEl.appendChild(card);
+  });
+}
+function addScheduleRow(){schedules.push({maxAgeDays:30,intervalVal:1,intervalUnit:"Days",active:true});renderSchedules();}
+function removeSchedule(index){schedules.splice(index,1);renderSchedules();}
+function updateSchedule(index,field,value){schedules[index][field]=(field==='maxAgeDays'||field==='intervalVal')?Number(value):value;}
+function runScheduleNow(index,btn){
+  var maxAge=schedules[index].maxAgeDays;btn.disabled=true;
+  google.script.run.withSuccessHandler(function(msg){btn.disabled=false;}).withFailureHandler(function(err){btn.disabled=false;showWarning(err);}).runLibrary('runSingleScheduleCheck',maxAge,true);
+}
+function setExecuteOutcome(msg,isError){
+  var el=document.getElementById('executeOutcome');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.className='execute-outcome'+(isError?' error':'');
+  el.style.display=(msg&&msg.length)?'block':'none';
+}
+function runCheckLastModified(){
+  var el=document.getElementById('executeMaxDays');var btn=document.getElementById('executeCheckBtn');
+  var maxDays=el?parseInt(el.value,10):0;if(isNaN(maxDays))maxDays=0;
+  if(btn)btn.disabled=true;
+  setExecuteOutcome('Running check…');
+  google.script.run.withSuccessHandler(function(msg){if(btn)btn.disabled=false;setExecuteOutcome(msg||'Check completed.');}).withFailureHandler(function(err){if(btn)btn.disabled=false;setExecuteOutcome(err&&err.message?err.message:String(err),true);}).runLibrary('runSingleScheduleCheck',maxDays,true);
+}
+function runSync(){
+  var btn=document.getElementById('executeSyncBtn');if(btn)btn.disabled=true;
+  setExecuteOutcome('Running sync…');
+  google.script.run.withSuccessHandler(function(){if(btn)btn.disabled=false;setExecuteOutcome('Sync completed.');}).withFailureHandler(function(err){if(btn)btn.disabled=false;setExecuteOutcome(err&&err.message?err.message:String(err),true);}).runLibrary('runAutoSync',null,true);
+}
+function checkStatusOnly(){
+  google.script.run.withSuccessHandler(function(status){
+    applyStatus(status);
+    google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).runLibrary('persistLastStatus',status,true);
+  }).withFailureHandler(function(err){showWarning(err);}).runLibrary('getSystemStatus',null,true);
+}
+/** Create missing control (and logs/setup) – used by Source Files Create button. */
+function createMissing(){
+  var btn=document.getElementById('createControlBtn');if(btn){btn.disabled=true;btn.textContent='Creating...';}
+  google.script.run.withSuccessHandler(function(result){
+    var status=result&&result.status?result.status:result;
+    applyStatus(status);
+    google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).runLibrary('persistLastStatus',status,true);
+    if(result&&result.tableError){showWarning(result.tableError);}
+    var b=document.getElementById('createControlBtn');if(b){b.disabled=false;b.textContent='Create';}
+  }).withFailureHandler(function(err){showWarning(err);var b=document.getElementById('createControlBtn');if(b){b.disabled=false;b.textContent='Create';}}).runLibrary('provisionSystem',null,true);
+}
+/** Create missing logs sheet/table only – used by Logs Create button. */
+function createMissingLogs(){
+  var btn=document.getElementById('createLogsBtn');if(btn){btn.disabled=true;btn.textContent='Creating...';}
+  google.script.run.withSuccessHandler(function(result){
+    var status=result&&result.status?result.status:result;
+    applyStatus(status);
+    google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).runLibrary('persistLastStatus',status,true);
+    if(result&&result.tableError){showWarning(result.tableError);}
+    var b=document.getElementById('createLogsBtn');if(b){b.disabled=false;b.textContent='Create';}
+  }).withFailureHandler(function(err){showWarning(err);var b=document.getElementById('createLogsBtn');if(b){b.disabled=false;b.textContent='Create';}}).runLibrary('provisionLogsOnly',null,true);
+}
+function saveSettings(){
+  if(hasDataRangeValidationErrors()){
+    for(var i=0;i<dataRanges.length;i++)dataRangesNameTouched[i]=true;
+    renderDataRanges();
+    updateSaveButtonState();
+    alert('Fix invalid fields before saving. Name: only a–z, A–Z, 0–9, _. Source Range: required.');
+    return;
+  }
+  var btn=document.getElementById('saveBtn');if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  var form=document.getElementById('settingsForm');var payload={};var fd=new FormData(form);fd.forEach(function(value,key){payload[key]=value;});payload.lmSchedulesJson=JSON.stringify(schedules);payload.dataRangesJson=JSON.stringify(dataRanges);
+  google.script.run.withSuccessHandler(function(){
+    if(btn){btn.textContent='Saved.';}
+    google.script.run.withSuccessHandler(function(status){
+      applyStatus(status);
+      google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).runLibrary('persistLastStatus',status,true);
+    }).withFailureHandler(function(){applyStatus({control:'missing',logs:'missing',setup:'missing'});}).runLibrary('getSystemStatus',null,true);
+    setTimeout(function(){if(btn){btn.disabled=hasDataRangeValidationErrors();btn.textContent='Save Changes';}},1500);
+  }).withFailureHandler(function(err){alert('Error: '+(err&&err.message?err.message:String(err)));if(btn){btn.disabled=hasDataRangeValidationErrors();btn.textContent='Save Changes';}}).runLibrary('saveUserConfig',payload,true);
+}
+function showWarning(html){document.getElementById('warningText').innerHTML=typeof html==='string'?html:html.toString();document.getElementById('serviceWarning').style.display='block';}
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--primary:#1a73e8;--bg:#f8f9fa;--card:#fff;--text:#3c4043;--border:#dadce0;--code-bg:#2d2d2d;--code-text:#f8f8f2;}
+body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text);margin:0;padding:0;line-height:1.6;}
+.container{max-width:800px;margin:40px auto;padding:0 20px;}
+.header{text-align:center;margin-bottom:40px;}
+.header h1{color:var(--primary);margin-bottom:10px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:30px;margin-bottom:25px;box-shadow:0 1px 3px rgba(0,0,0,0.1);}
+h2{font-size:18px;margin-top:0;}
+h3{font-size:15px;margin-top:15px;color:#444;}
+ul,ol{padding-left:25px;}
+.script-id{background:#f1f3f4;padding:2px 6px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;}
+.copy-small-btn{background:white;border:1px solid #dadce0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:8px;color:var(--primary);}
+pre{background:var(--code-bg);color:var(--code-text);padding:20px;border-radius:6px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px;white-space:pre-wrap;}
+table{width:100%;border-collapse:collapse;}
+table th,table td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+table th{font-size:13px;color:#444;}
+.footer{text-align:center;font-size:12px;color:#666;margin-top:40px;}
+.footer a{color:var(--primary);text-decoration:none;}
+.footer a:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header"><h1>Smart Sync – Strona dewelopera</h1><p>Lokalizacja skryptu, deployment i zmienne do edycji.</p></div>
+
+<div class="card">
+<h2>Lokalizacja skryptu</h2>
+<p>Projekt znajduje się w <strong>Google Apps Script</strong> (standalone): <strong>Rozszerzenia</strong> &rarr; <strong>Apps Script</strong> w arkuszu lub bezpośrednio w <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a>.</p>
+<p><strong>Script ID</strong> (aktualny): <span id="devScriptId" class="script-id">…</span> <button class="copy-small-btn" onclick="copyText('devScriptId',this)">Copy</button></p>
+<p>Script ID jest też widoczny w URL edytora: <code>.../projects/<em>SCRIPT_ID</em>/edit</code> oraz w <strong>Projekt</strong> &rarr; <strong>Ustawienia projektu</strong>.</p>
+</div>
+
+<div class="card">
+<h2>Deployment</h2>
+<p>Manual i ta strona są serwowane jako <strong>web app</strong> przez funkcję <code>doGet(e)</code> w <code>Main.gs</code>. Strona dewelopera: <code>?page=developer</code> przy tym samym URL wdrożenia.</p>
+<h3>Wdrożenie ręczne (edytor Apps Script)</h3>
+<ol>
+<li>Otwórz projekt w <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a> (lub <strong>Rozszerzenia</strong> &rarr; <strong>Apps Script</strong> w arkuszu).</li>
+<li>Wybierz <strong>Wdrażaj</strong> &rarr; <strong>Nowe wdrożenie</strong> (lub <strong>Zarządzaj wdrożeniami</strong> &rarr; <strong>Edytuj</strong> przy istniejącym).</li>
+<li>Przy &bdquo;Wybierz typ&rdquo; wybierz <strong>Aplikacja internetowa</strong>.</li>
+<li><strong>Opis:</strong> np. &bdquo;Smart Sync Manual&rdquo; (dowolna nazwa).</li>
+<li><strong>Uruchom jako:</strong> <strong>Ja</strong> (konto właściciela skryptu).</li>
+<li><strong>Kto ma dostęp:</strong> <strong>Wszyscy</strong> (jeśli Manual ma być publiczny) lub <strong>Tylko użytkownicy w Twojej organizacji</strong>.</li>
+<li>Kliknij <strong>Wdróż</strong>. Skopiuj URL aplikacji (np. <code>https://script.google.com/macros/s/…/exec</code>) i ustaw go jako <code>PUBLISHER_MANUAL_URL</code> (oraz opcjonalnie <code>PUBLISHER_DEVELOPER_PAGE_URL</code>) w Configuration.js, aby link w Ustawieniach i w Manualu działał.</li>
+<li>Przy kolejnych zmianach kodu: <strong>Wdrażaj</strong> &rarr; <strong>Zarządzaj wdrożeniami</strong> &rarr; ikona ołówka przy wdrożeniu &rarr; <strong>Wersja</strong> wybierz &bdquo;Nowa wersja&rdquo; &rarr; <strong>Wdróż</strong>.</li>
+</ol>
+<p>W projekcie arkusza klienta włącz <strong>Zaawansowane usługi</strong> (Sheets API, Drive API): <strong>Rozszerzenia</strong> &rarr; <strong>Apps Script</strong> &rarr; <strong>Usługi</strong> / <strong>Resources</strong> &rarr; <strong>Advanced Google Services</strong>.</p>
+</div>
+
+<div class="card">
+<h2>Zmienne do zmiany</h2>
+<p>W pliku <code>Configuration.gs</code> (na górze) ustaw:</p>
+<table>
+<thead>
+<tr><th>Zmienna</th><th>Opis</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Script ID</strong></td><td>Pobierany automatycznie z <code>ScriptApp.getScriptId()</code> w runtime. Nie ma stałej do edycji.</td></tr>
+<tr><td><code>PUBLISHER_CONTACT</code></td><td>Kontakt (np. email lub tekst &bdquo;Kontakt: …&rdquo;). Wyświetlany w Manualu w stopce. Ustaw w Configuration.js.</td></tr>
+<tr><td><code>PUBLISHER_DEVELOPER_PAGE_URL</code></td><td>Pełny URL strony dewelopera. Jeśli pusty, używany jest URL web app + <code>?page=developer</code>. Ustaw w Configuration.js.</td></tr>
+<tr><td><code>PUBLISHER_MANUAL_URL</code></td><td>Pełny URL Manuala (web app). Używany przez link &bdquo;Manual&rdquo; w Ustawieniach. Ustaw w Configuration.js.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="footer"><a href="?" id="manualLink">Manual</a> &middot; Smart Sync Library</div>
+</div>
+<script>
+function copyText(elementId,btn){var text=document.getElementById(elementId).innerText;if(!text)return;navigator.clipboard.writeText(text).then(function(){var orig=btn.textContent;btn.textContent='Copied!';setTimeout(function(){btn.textContent=orig;},2000);});}
+function fillDeveloperData(data){
+  if(!data)return;
+  var el=document.getElementById('devScriptId');if(el)el.textContent=data.scriptId||'—';
+  var link=document.getElementById('manualLink');if(link&&data.developerPageUrl){var base=data.developerPageUrl.replace(/\?page=developer$/,'');link.href=base||'?';}
+}
+google.script.run.withSuccessHandler(fillDeveloperData).withFailureHandler(function(){var el=document.getElementById('devScriptId');if(el)el.textContent='—';}).getManualData();
+</script>
+</body>
+</html>

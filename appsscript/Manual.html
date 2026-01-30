@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--primary:#1a73e8;--bg:#f8f9fa;--card:#fff;--text:#3c4043;--border:#dadce0;--code-bg:#2d2d2d;--code-text:#f8f8f2;}
+body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text);margin:0;padding:0;line-height:1.6;}
+.container{max-width:800px;margin:40px auto;padding:0 20px;}
+.header{text-align:center;margin-bottom:40px;}
+.header h1{color:var(--primary);margin-bottom:10px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:30px;margin-bottom:25px;box-shadow:0 1px 3px rgba(0,0,0,0.1);}
+.step-number{display:inline-block;background:var(--primary);color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-size:14px;margin-right:10px;font-weight:bold;}
+h2{font-size:18px;margin-top:0;}
+h3{font-size:15px;margin-top:15px;color:#444;}
+ul,ol{padding-left:25px;}
+.script-id{background:#f1f3f4;padding:2px 6px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;}
+.copy-small-btn{background:white;border:1px solid #dadce0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:8px;color:var(--primary);}
+pre{background:var(--code-bg);color:var(--code-text);padding:20px;border-radius:6px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px;white-space:pre-wrap;}
+.copy-btn{position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.1);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;}
+.footer{text-align:center;font-size:12px;color:#666;margin-top:40px;}
+.footer a{color:var(--primary);text-decoration:none;}
+.footer a:hover{text-decoration:underline;}
+.details-section{margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header"><h1>Smart Sync</h1><p>Sync data from source Google Sheets into this spreadsheet, with last-modified checks and optional scheduled runs.</p></div>
+
+<!-- Getting started -->
+<div class="card">
+<h2><span class="step-number">1</span>Add the Library</h2>
+<p>Open your spreadsheet&rsquo;s script editor (<strong>Extensions</strong> &rarr; <strong>Apps Script</strong>) and add the library:</p>
+<ul>
+<li><strong>Script ID:</strong> <span id="libId" class="script-id">…</span> <button class="copy-small-btn" onclick="copyText('libId',this)">Copy</button></li>
+<li><strong>Identifier:</strong> <span id="libIdentifier" class="script-id">SmartSync</span> <button class="copy-small-btn" onclick="copyText('libIdentifier',this)">Copy</button></li>
+<li><strong>Version:</strong> Select the latest version</li>
+</ul>
+</div>
+<div class="card">
+<h2><span class="step-number">2</span>Enable Advanced Services</h2>
+<p><strong>Required.</strong> Your spreadsheet script must enable the same APIs (library code runs in your project&rsquo;s context):</p>
+<ol>
+<li>In the Apps Script editor: <strong>Resources</strong> &rarr; <strong>Advanced Google Services</strong>.</li>
+<li>Turn <strong>Google Sheets API</strong> and <strong>Drive API</strong> to <strong>ON</strong>.</li>
+<li>Open the link to <strong>Google Cloud Console</strong> and enable the same APIs there for this project.</li>
+</ol>
+<p>Without this, Check/Create and sync will fail.</p>
+</div>
+<div class="card">
+<h2><span class="step-number">3</span>Paste Client Code</h2>
+<p>Copy the code below into <code>Code.gs</code> in your spreadsheet script.</p>
+<div style="position:relative"><button class="copy-btn" onclick="copyCodeBlock()">Copy Code</button>
+<pre id="codeBlock">/**
+ * SMART SYNC - CLIENT SIDE WRAPPER
+ * All logic resides in the SmartSync Library.
+ */
+function onOpen() { runLibrary('onOpen'); }
+function runAutoSync() { runLibrary('runAutoSync'); }
+function showSettings() { runLibrary('showSettings'); }
+function updateLastModified() { runLibrary('updateLastModified'); }
+function scheduledLastModifiedCheck() { runLibrary('processScheduledWorkflow', null, true); }
+function runLibrary(func, arg, rethrow) {
+  var ss = SpreadsheetApp.getActive();
+  if (typeof SmartSync === 'undefined') {
+    var msg = "Library 'SmartSync' missing. Fix in Extensions &gt; Libraries.";
+    if (rethrow) throw new Error(msg);
+    ss.toast(msg, "Setup Error", 3);
+    return;
+  }
+  try {
+    return SmartSync[func](arg);
+  } catch (e) {
+    if (rethrow) throw e;
+    ss.toast(e.message, "Error", 3);
+  }
+}
+function testConnection() {
+  if (typeof SmartSync === 'undefined') SpreadsheetApp.getActive().toast("Library Missing", "Error", 3);
+  else try { var v = SmartSync.getLibraryVersion(); SpreadsheetApp.getActive().toast("Connected: v" + v, "Success", 3); } catch(e) { SpreadsheetApp.getActive().toast(e.message, "Error", 3); }
+}</pre></div>
+</div>
+<div class="card">
+<h2><span class="step-number">4</span>First-Time Setup</h2>
+<ol>
+<li>Refresh your spreadsheet browser tab.</li>
+<li>Open <strong>Smart Sync</strong> &rarr; <strong>Settings</strong>.</li>
+<li>Under <strong>Setup</strong>, open Source Files: click <strong>Check</strong>, then <strong>Create</strong> if needed to create the control sheet and table.</li>
+<li>Under <strong>Advanced Options</strong>, open Logs: click <strong>Check</strong>, then <strong>Create</strong> if needed to create the logs sheet.</li>
+<li>Add at least one <strong>Data Range</strong> (name and source range). Save.</li>
+</ol>
+</div>
+
+<!-- Usage (generic) -->
+<div class="card">
+<h2>Using Smart Sync</h2>
+<p><strong>Menu:</strong> <strong>Smart Sync</strong> &rarr; <strong>Run Auto Sync</strong> runs the sync now. <strong>Settings</strong> opens the sidebar to configure sources, data ranges, schedules, and options.</p>
+<p><strong>Source list (urls sheet):</strong> Put Google Sheet IDs or URLs in the <code>sheet_id</code> column. Sync only runs for rows that are out of date (or never synced).</p>
+<p><strong>Data Ranges (Settings):</strong> Each entry defines a source range to sync into a sheet/table in this spreadsheet. After saving, run <strong>Check</strong> under Setup to refresh status, then <strong>Sync</strong> from Execute to run the sync.</p>
+</div>
+
+<!-- Details at the end -->
+<div class="card">
+<h2>Details</h2>
+
+<h3>urls sheet (Source Files)</h3>
+<p>Default sheet name is <code>urls</code>. Row 1 is the header. Required columns:</p>
+<ul>
+<li><strong>sheet_id</strong> &mdash; Google Sheet ID or full URL of the source spreadsheet.</li>
+<li><strong>last_modified_datetime</strong> &mdash; Filled by &ldquo;Check&rdquo; (last-modified date from Drive).</li>
+<li><strong>last_update_datetime</strong> &mdash; Updated by the script after each sync (or &ldquo;Error&rdquo; on failure).</li>
+</ul>
+<p>Sync runs only for rows where <code>sheet_id</code> is set and the source is newer than <code>last_update_datetime</code> (or never synced).</p>
+
+<h3>Data Ranges (Settings)</h3>
+<p>Each data range has:</p>
+<ul>
+<li><strong>Name</strong> (required) &mdash; Identifier for the target sheet/table (letters, digits, underscore only).</li>
+<li><strong>Source Range</strong> (required) &mdash; A1 range in the source sheet to sync (e.g. <code>Sheet1!A1:D</code>).</li>
+<li><strong>Not empty column</strong> (optional) &mdash; Column name used to trim trailing empty rows.</li>
+</ul>
+<p>After adding or editing data ranges, click <strong>Save Changes</strong>, then <strong>Check</strong> under Setup to ensure tables exist.</p>
+
+<h3>Settings sidebar</h3>
+<ul>
+<li><strong>Execute</strong> &mdash; <strong>Check</strong> runs the last-modified date check (optional max age in days). <strong>Sync</strong> runs the full sync. Both are enabled when Setup is OK.</li>
+<li><strong>Sync Schedules</strong> &mdash; Add schedules (max age, interval, active). Active schedules create time-based triggers to run the last-modified check; sync can then be run manually or by your own trigger.</li>
+<li><strong>Setup</strong> (collapsible) &mdash; <strong>Source Files</strong>: Check/Create for the urls sheet and table. <strong>Data Ranges</strong>: Add or edit data range entries.</li>
+<li><strong>Advanced Options</strong> (collapsible) &mdash; <strong>Logs</strong>: Check/Create for the logs sheet; <strong>Logs level</strong> (None, Errors, Warnings, Basic, All); <strong>Max log rows</strong> (0 = no limit). <strong>Performance</strong>: Sleep time (ms) between API calls, API retries.</li>
+</ul>
+
+<h3>Logging</h3>
+<p>Sync and last-modified check results can be written to the <strong>logs</strong> sheet. <strong>Logs level</strong> controls what is logged (None, Errors only, Warnings, Basic, or All). <strong>Max log rows</strong> caps how many data rows are kept; oldest rows are removed when the limit is exceeded. Set to 0 for no limit.</p>
+
+<h3>Last-modified checks and triggers</h3>
+<p><strong>Check</strong> (Execute or scheduled) reads last-modified dates from Drive for each source and updates the urls sheet. It does not run sync. <strong>Sync</strong> uses those dates to decide which sources to sync. When you add active <strong>Sync Schedules</strong>, the library creates time-based triggers that run the check on the chosen interval; you can then run <strong>Run Auto Sync</strong> (or call <code>runAutoSync</code>) manually or from another trigger after the check.</p>
+</div>
+
+<div class="footer" id="manualFooter">
+  <span id="contactBlock"></span>
+  <span id="developerLinkBlock"></span>
+  Smart Sync Library
+</div>
+</div>
+<script>
+function copyCodeBlock(){var code=document.getElementById('codeBlock').innerText;navigator.clipboard.writeText(code).then(function(){var btn=document.querySelector('.copy-btn');btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy Code';},2000);});}
+function copyText(elementId,btn){var text=document.getElementById(elementId).innerText;navigator.clipboard.writeText(text).then(function(){var orig=btn.textContent;btn.textContent='Copied!';setTimeout(function(){btn.textContent=orig;},2000);});}
+function fillManualData(data){
+  if(!data)return;
+  var libEl=document.getElementById('libId');if(libEl)libEl.textContent=data.scriptId||'—';
+  var contactEl=document.getElementById('contactBlock');if(contactEl&&data.contactInfo){contactEl.textContent=data.contactInfo;contactEl.style.marginRight='1em';}
+  var devEl=document.getElementById('developerLinkBlock');if(devEl&&data.developerPageUrl){var a=document.createElement('a');a.href=data.developerPageUrl;a.textContent='Strona dewelopera';a.className='section-title-link';devEl.appendChild(a);devEl.style.marginRight='1em';}
+}
+function manualDataError(){var libEl=document.getElementById('libId');if(libEl)libEl.textContent='—';}
+google.script.run.withSuccessHandler(fillManualData).withFailureHandler(manualDataError).getManualData();
+</script>
+</body>
+</html>
