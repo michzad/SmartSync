@@ -45,7 +45,21 @@ function masterSync(sourceId, config, mode, targetState, destSsId, sourceValuesM
   }
 
   if (requests.length > 0) {
-    callWithRetry(() => Sheets.Spreadsheets.batchUpdate({ requests: requests }, destSsId), settings.maxApiRetries);
+    const response = callWithRetry(() => Sheets.Spreadsheets.batchUpdate({ requests: requests }, destSsId), settings.maxApiRetries);
+    if (response.replies) {
+      response.replies.forEach(reply => {
+        if (reply.addTable && reply.addTable.table) {
+          const table = reply.addTable.table;
+          const sId = table.range.sheetId;
+          for (const info of targetState.sheets.values()) {
+            if (info.sheetId === sId) {
+              info.tableId = table.tableId;
+              break;
+            }
+          }
+        }
+      });
+    }
   }
 
   return results;
@@ -98,21 +112,26 @@ function processTableDataSync(tableName, cfg, sourceRows, targetState, sourceId,
     );
     currentData = [headers].concat(rowsAsArrays);
   } else {
-    headers = currentData[0] || [];
-    width = headers.length;
-    if (currentData.length > 0) {
-      const firstCol = headers[0] != null ? String(headers[0]).trim() : "";
-      const expectedCols = (sourceRows[0] && sourceRows[0].length) ? sourceRows[0].length + 1 : 1;
-      if (firstCol !== "Source_ID" || headers.length !== expectedCols) {
-        throw new Error("Target sheet '" + sheetName + "' header consistency failed: expected first column 'Source_ID' and " + expectedCols + " columns.");
-      }
-      const targetHeaderNames = headers.slice(1);
-      const sourceHeaderNames = sourceRows[0] || [];
-      for (var i = 0; i < targetHeaderNames.length; i++) {
-        var targetVal = (targetHeaderNames[i] != null ? String(targetHeaderNames[i]).trim() : "");
-        var sourceVal = (sourceHeaderNames[i] != null ? String(sourceHeaderNames[i]).trim() : "");
-        if (targetVal !== sourceVal) {
-          throw new Error("Source header mismatch in table '" + sheetName + "': column " + (i + 1) + " expected '" + targetVal + "', got '" + sourceVal + "'.");
+    if (currentData.length === 0 && sourceRows.length > 0) {
+      headers = ["Source_ID"].concat(sourceRows[0] || []);
+      width = headers.length;
+    } else {
+      headers = currentData[0] || [];
+      width = headers.length;
+      if (currentData.length > 0) {
+        const firstCol = headers[0] != null ? String(headers[0]).trim() : "";
+        const expectedCols = (sourceRows[0] && sourceRows[0].length) ? sourceRows[0].length + 1 : 1;
+        if (firstCol !== "Source_ID" || headers.length !== expectedCols) {
+          throw new Error("Target sheet '" + sheetName + "' header consistency failed: expected first column 'Source_ID' and " + expectedCols + " columns.");
+        }
+        const targetHeaderNames = headers.slice(1);
+        const sourceHeaderNames = sourceRows[0] || [];
+        for (var i = 0; i < targetHeaderNames.length; i++) {
+          var targetVal = (targetHeaderNames[i] != null ? String(targetHeaderNames[i]).trim() : "");
+          var sourceVal = (sourceHeaderNames[i] != null ? String(sourceHeaderNames[i]).trim() : "");
+          if (targetVal !== sourceVal) {
+            throw new Error("Source header mismatch in table '" + sheetName + "': column " + (i + 1) + " expected '" + targetVal + "', got '" + sourceVal + "'.");
+          }
         }
       }
     }
@@ -137,9 +156,13 @@ function processTableDataSync(tableName, cfg, sourceRows, targetState, sourceId,
     startRowIndex = 0;
     affectedCount = newRows.length;
   } else if (mode === "sync") {
-    const keepRows = currentData.filter((r, i) => i === 0 || r[0] !== sourceId);
+    const keepRows = currentData.length > 0
+      ? currentData.filter((r, i) => i === 0 || r[0] !== sourceId)
+      : [];
     const newRows = sourceRows.slice(1).map(normalize);
-    fullTableData = [...keepRows, ...newRows];
+    fullTableData = currentData.length === 0
+      ? [headers, ...newRows]
+      : [...keepRows, ...newRows];
     rowsToWrite = fullTableData;
     startRowIndex = 0;
     affectedCount = newRows.length;
@@ -159,6 +182,44 @@ function processTableDataSync(tableName, cfg, sourceRows, targetState, sourceId,
 
   if (affectedCount === 0 && mode === "append") {
     return { reqs: [], result: { status: "Skipped", count: 0 } };
+  }
+
+  const isNewSheetNoTable = !sheetInfo.tableId;
+  if (isNewSheetNoTable && fullTableData.length > 0) {
+    const requiredCols = headers.length;
+    if (requiredCols > sheetInfo.grid.columnCount) {
+      requests.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId: sheetInfo.sheetId,
+            gridProperties: { columnCount: requiredCols + 1 }
+          },
+          fields: "gridProperties(columnCount)"
+        }
+      });
+      sheetInfo.grid.columnCount = requiredCols + 1;
+    }
+    const columnProperties = headers.map((colName, i) => ({
+      columnIndex: i,
+      columnName: String(colName),
+      columnType: "TEXT"
+    }));
+    requests.push({
+      addTable: {
+        table: {
+          name: tableName,
+          range: {
+            sheetId: sheetInfo.sheetId,
+            startRowIndex: 0,
+            endRowIndex: fullTableData.length,
+            startColumnIndex: 0,
+            endColumnIndex: headers.length
+          },
+          columnProperties: columnProperties
+        }
+      }
+    });
+    sheetInfo.tableId = "PENDING";
   }
 
   const gridReq = calculateGridExpansion(sheetInfo, fullTableData.length, width, settings);
@@ -194,27 +255,20 @@ function processTableDataSync(tableName, cfg, sourceRows, targetState, sourceId,
 }
 
 /**
- * Ensures sheets and table structure exist for all configured tables.
+ * Ensures sheets exist for all configured tables. Call once per run before processing any files.
+ * Creates only missing sheets (addSheet); header and table are written with first data in processTableDataSync.
  * @param {string} ssId - Spreadsheet ID.
- * @param {Object} config - Table config.
+ * @param {Object} config - Table config from getDataRangesConfig.
  * @param {Object} targetState - Mutable state (sheets + values).
- * @param {Map<string, Array<Array>>} sourceValuesMap - Table name -> rows.
- * @param {Object} settings - Config (grid, maxApiRetries).
+ * @param {Object} settings - Config (grid.frozenRows, maxApiRetries).
  */
-function ensureInfrastructure(ssId, config, targetState, sourceValuesMap, settings) {
+function ensureInfrastructure(ssId, config, targetState, settings) {
   const sheetCreationRequests = [];
-  const contentRequests = [];
   const createdSheetNames = new Set();
 
   for (const [tableName, cfg] of Object.entries(config)) {
     const sheetName = cfg.sheet_name;
-    const sourceRows = sourceValuesMap.get(tableName);
-
-    if (!sourceRows || sourceRows.length === 0) continue;
-
-    const sheetInfo = targetState.sheets.get(sheetName);
-
-    if (!sheetInfo && !createdSheetNames.has(sheetName)) {
+    if (!targetState.sheets.has(sheetName) && !createdSheetNames.has(sheetName)) {
       console.log("[Setup] Queueing creation for missing sheet: \"" + sheetName + "\"");
       sheetCreationRequests.push({
         addSheet: {
@@ -240,89 +294,7 @@ function ensureInfrastructure(ssId, config, targetState, sourceValuesMap, settin
       });
       targetState.values.set(props.title, []);
     });
-  }
-
-  for (const [tableName, cfg] of Object.entries(config)) {
-    const sheetName = cfg.sheet_name;
-    const sourceRows = sourceValuesMap.get(tableName);
-    if (!sourceRows || sourceRows.length === 0) continue;
-
-    const sheetInfo = targetState.sheets.get(sheetName);
-
-    if (!sheetInfo.tableId) {
-      console.log("[Setup] Creating table for: \"" + sheetName + "\"");
-
-      const headers = ["Source_ID", ...sourceRows[0]];
-      const requiredCols = headers.length;
-
-      /* Siatka: requiredCols (nagłówki z Source_ID) + 1 kolumna buforowa. */
-      if (requiredCols > sheetInfo.grid.columnCount) {
-        contentRequests.push({
-          updateSheetProperties: {
-            properties: {
-              sheetId: sheetInfo.sheetId,
-              gridProperties: { columnCount: requiredCols + 1 }
-            },
-            fields: "gridProperties(columnCount)"
-          }
-        });
-        sheetInfo.grid.columnCount = requiredCols + 1;
-      }
-
-      const headerRowData = headers.map(h => ({ userEnteredValue: { stringValue: String(h) } }));
-
-      contentRequests.push({
-        updateCells: {
-          range: { sheetId: sheetInfo.sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0 },
-          rows: [{ values: headerRowData }],
-          fields: "userEnteredValue"
-        }
-      });
-
-      const columnProperties = headers.map((colName, i) => ({
-        columnIndex: i,
-        columnName: String(colName),
-        columnType: "TEXT"
-      }));
-      contentRequests.push({
-        addTable: {
-          table: {
-            name: tableName,
-            range: {
-              sheetId: sheetInfo.sheetId,
-              startRowIndex: 0,
-              endRowIndex: 1,
-              startColumnIndex: 0,
-              endColumnIndex: requiredCols
-            },
-            columnProperties: columnProperties
-          }
-        }
-      });
-
-      sheetInfo.tableId = "PENDING";
-      targetState.values.set(sheetName, [headers]);
-    }
-  }
-
-  if (contentRequests.length > 0) {
-    const response = callWithRetry(() => Sheets.Spreadsheets.batchUpdate({ requests: contentRequests }, ssId), settings.maxApiRetries);
-    console.log("[Setup] Infrastructure provisioning complete.");
-
-    if (response.replies) {
-      response.replies.forEach(reply => {
-        if (reply.addTable) {
-          const table = reply.addTable.table;
-          const sId = table.range.sheetId;
-          for (const info of targetState.sheets.values()) {
-            if (info.sheetId === sId) {
-              info.tableId = table.tableId;
-              break;
-            }
-          }
-        }
-      });
-    }
+    console.log("[Setup] Sheet creation complete. Header and table are written with first data in processTableDataSync.");
   }
 }
 

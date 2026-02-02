@@ -1,0 +1,52 @@
+---
+globs: *.excalidraw
+alwaysApply: false
+---
+# Wytyczne Excalidraw (SmartSync)
+
+Przy tworzeniu lub edycji plików `.excalidraw` stosuj poniższe zasady.
+
+## 1. Jednolite kolory (paleta)
+
+Używaj wyłącznie tej palety. W JSON: `strokeColor` (obramowanie), `backgroundColor` (wypełnienie).
+
+| Rola | stroke | fill |
+|------|--------|------|
+| Główny blok | `#e67700` | `#ffe8cc` |
+| Źródło/wejście | `#1971c2` | `#a5d8ff` |
+| Cel/wyjście | `#9c36b5` | `#eebefa` |
+| Konfiguracja | `#2f9e44` | `#b2f2bb` |
+| API/zewnętrzne | `#c92a2a` | `#ffc9c9` |
+| Harmonogram | `#5c7cfa` | `#d0ebff` |
+| Tekst, strzałki | `#1e1e1e` | `transparent` |
+| Tło canvas | — | `#ffffff` (appState.viewBackgroundColor) |
+
+## 2. Czcionka
+
+- Docelowa: **Nunito**. W standardowym Excalidraw jej nie ma – używaj **Assistant**: `"fontFamily": 4` (lub Normal: `1`) w elementach `type: "text"`.
+
+## 3. Typ: diagram architektoniczny (architect)
+
+- Prostokąty (`rectangle`) = komponenty; strzałki (`arrow`) = przepływ/zależności.
+- Prostokąty z zaokrąglonymi rogami: `"roundness": { "type": 3 }`.
+- Strzałki: `"endArrowhead": "arrow"`.
+- Układ: źródła → rdzeń → cele; API/triggery u dołu.
+
+## 4. Tekst związany z ramką
+
+- Tekst wewnątrz bloku ma być powiązany z prostokątem: w elemencie `type: "text"` ustaw **`containerId`** na **id** prostokąta (np. `"containerId": "box-sources"`).
+- W tablicy `elements`: **najpierw** elementy wewnątrz ramki (teksty z `containerId`), **potem** prostokąt-ramka.
+
+```json
+"elements": [
+  { "id": "text-1", "type": "text", "containerId": "box-1", ... },
+  { "id": "box-1", "type": "rectangle", ... }
+]
+```
+
+## Checklist
+
+- Kolory tylko z palety powyżej.
+- `fontFamily`: 4 (Assistant) lub 1 (Normal).
+- Styl architect: prostokąty + strzałki, czytelna hierarchia.
+- Tekst w ramce: `containerId` = id prostokąta; kolejność: dzieci przed ramką.

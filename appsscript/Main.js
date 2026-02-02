@@ -59,6 +59,7 @@ function runAutoSync(options) {
   var targetState = fetchSmartTargetState(ssId, config, settings.maxApiRetries);
   var queue = buildSyncQueue(urlData, targetState, config, settings);
   if (queue.length === 0) { console.log("All up to date."); return; }
+  ensureInfrastructure(ssId, config, targetState, settings);
   ensureLogSheetViaApi(ssId, settings.logSheetName, settings.maxApiRetries);
   SpreadsheetApp.flush();
   for (var i = 0; i < queue.length; i++) {
@@ -66,7 +67,6 @@ function runAutoSync(options) {
     console.log("Processing " + item.sheetId + " Mode: " + item.mode);
     try {
       var sourceValuesMap = readAndTrimSourceData(item.sheetId, config, settings.maxApiRetries);
-      ensureInfrastructure(ssId, config, targetState, sourceValuesMap, settings);
       var result = masterSync(item.sheetId, config, item.mode, targetState, ssId, sourceValuesMap, settings);
       var analyzed = analyzeSyncResult(result);
       if (shouldLogInMain(settings, analyzed.hasError, analyzed.logDetails)) {
