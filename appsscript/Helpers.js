@@ -189,14 +189,74 @@ function logResult(ss, logSheetName, item, hasError, totalRows, details, maxLogR
   logSheet.getRange(2, 1, endDeleteRow, lastCol).deleteCells(SpreadsheetApp.Dimension.ROWS);
 }
 
-function updateTimestamp(sheetName, rowIndex, hasError, headers) {
-  updateTimestampInTable(sheetName, rowIndex, headers.last_upd, hasError ? 'Error' : new Date());
+/**
+ * @param {*} val - skip_reason or legacy Error in date cell.
+ * @returns {boolean}
+ */
+function isRowSkipped(val) {
+  return (val != null && String(val).trim() !== "");
 }
 
 /**
- * Writes last_update_datetime (or targetHeader) in the same format as last_modified_datetime:
- * "yyyy-MM-dd HH:mm:ss" (spreadsheet timezone), or the string "Error" when hasError.
- * Keeps both datetime columns consistent with the script.
+ * Normalizes a control-table date cell: empty/legacy Error → "".
+ * @param {*} val
+ * @returns {string}
+ */
+function normalizeControlDateCell(val) {
+  var s = (val != null ? String(val) : "").trim();
+  if (s === "" || s === "Error" || s === "Config Error") return "";
+  return s;
+}
+
+/**
+ * @param {Date} [date]
+ * @returns {string} yyyy-MM-dd HH:mm:ss in spreadsheet timezone.
+ */
+function formatControlDate(date) {
+  var d = date || new Date();
+  return Utilities.formatDate(d, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+}
+
+/**
+ * Short Drive/check error for skip_reason.
+ * @param {Error|*} e
+ * @returns {string}
+ */
+function driveCheckErrorMessage(e) {
+  var msg = (e && e.message) ? e.message : String(e);
+  if (msg.indexOf("Drive is not defined") !== -1) return "Drive API not enabled";
+  if (/not found|404/i.test(msg)) return "File not found";
+  if (msg.length > 120) return msg.substring(0, 117) + "...";
+  return msg;
+}
+
+/**
+ * After sync: set last_successful_sync_date or clear it and set skip_reason on failure.
+ * @param {string} sheetName
+ * @param {number} rowIndex
+ * @param {Object} headers
+ * @param {boolean} hasError
+ * @param {string} [errorMessage]
+ */
+function updateRowAfterSync(sheetName, rowIndex, headers, hasError, errorMessage) {
+  if (hasError) {
+    updateControlCell(sheetName, rowIndex, headers.last_sync, "");
+    updateControlCell(sheetName, rowIndex, headers.skip_reason, errorMessage || "Sync failed");
+  } else {
+    updateControlCell(sheetName, rowIndex, headers.last_sync, formatControlDate(new Date()));
+    updateControlCell(sheetName, rowIndex, headers.skip_reason, "");
+  }
+}
+
+/**
+ * Writes one control-table cell (TEXT date or skip_reason).
+ */
+function updateControlCell(sheetName, rowIndex, targetHeader, customValue) {
+  updateTimestampInTable(sheetName, rowIndex, targetHeader, customValue);
+}
+
+/**
+ * Writes a control-table column value as TEXT yyyy-MM-dd HH:mm:ss or plain string.
  */
 function updateTimestampInTable(sheetName, rowIndex, targetHeader, customValue) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -208,8 +268,8 @@ function updateTimestampInTable(sheetName, rowIndex, targetHeader, customValue) 
   var colIndex = headers.indexOf(targetHeader) + 1;
   if (colIndex <= 0) return;
   var valueToSet;
-  if (customValue === undefined || customValue === null) {
-    valueToSet = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+  if (customValue === undefined || customValue === null || customValue === "") {
+    valueToSet = "";
   } else if (typeof customValue === "object" && customValue instanceof Date) {
     valueToSet = Utilities.formatDate(customValue, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
   } else {

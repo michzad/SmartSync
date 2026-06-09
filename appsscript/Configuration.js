@@ -1,5 +1,5 @@
 // Configuration.gs
-var LIBRARY_VERSION = "1.4.6";
+var LIBRARY_VERSION = "1.6.4";
 
 /** Contact info shown in Manual (e.g. email or "Contact: …"). Set by publisher. */
 var PUBLISHER_CONTACT = "";
@@ -18,7 +18,13 @@ var DEFAULT_CONFIG = {
   sleepTimeMs: 10,
   maxApiRetries: 3,
   grid: { frozenRows: 1 },
-  headers: { id: "sheet_id", last_mod: "last_modified_datetime", last_upd: "last_update_datetime" },
+  headers: {
+    id: "sheet_id",
+    source_mod: "source_last_modified_date",
+    last_sync: "last_successful_sync_date",
+    last_check: "last_check_date",
+    skip_reason: "skip_reason"
+  },
   lastModSchedules: [],
   dataRanges: [],
   configFetcher: getDataRangesConfig
@@ -52,6 +58,22 @@ function getManualUrl() {
   return (typeof PUBLISHER_MANUAL_URL === "string") ? PUBLISHER_MANUAL_URL : "";
 }
 
+/**
+ * Single Settings sidebar bootstrap: config, live status, version, manual URL (one client round-trip).
+ * @returns {{ config: Object, status: Object, libraryVersion: string, manualUrl: string }}
+ */
+function getSettingsBootstrap() {
+  var config = getUserConfig();
+  var status = getSystemStatus(config);
+  persistLastStatus(status);
+  return {
+    config: config,
+    status: status,
+    libraryVersion: getLibraryVersion(),
+    manualUrl: getManualUrl()
+  };
+}
+
 function getUserConfig() {
   try {
     var props = PropertiesService.getDocumentProperties();
@@ -72,7 +94,9 @@ function getUserConfig() {
       else out.maxLogRows = DEFAULT_CONFIG.maxLogRows;
     } else out.maxLogRows = DEFAULT_CONFIG.maxLogRows;
     out.grid = { frozenRows: DEFAULT_CONFIG.grid.frozenRows };
-    out.lastModSchedules = Array.isArray(saved.lastModSchedules) ? saved.lastModSchedules : [];
+    out.headers = {};
+    for (var hk in DEFAULT_CONFIG.headers) out.headers[hk] = DEFAULT_CONFIG.headers[hk];
+    out.lastModSchedules = normalizeLastModSchedules(saved.lastModSchedules);
     out.dataRanges = Array.isArray(saved.dataRanges) ? saved.dataRanges : [];
     if (saved.lastStatus && typeof saved.lastStatus === "object" && saved.lastStatus.control !== undefined) {
       out.lastStatus = saved.lastStatus;
@@ -118,7 +142,13 @@ function saveUserConfig(payload) {
       sleepTimeMs: toNum(payload.sleepTimeMs, DEFAULT_CONFIG.sleepTimeMs),
       maxApiRetries: toNum(payload.maxApiRetries, DEFAULT_CONFIG.maxApiRetries),
       grid: { frozenRows: DEFAULT_CONFIG.grid.frozenRows },
-      headers: { id: DEFAULT_CONFIG.headers.id, last_mod: DEFAULT_CONFIG.headers.last_mod, last_upd: DEFAULT_CONFIG.headers.last_upd },
+      headers: {
+        id: DEFAULT_CONFIG.headers.id,
+        source_mod: DEFAULT_CONFIG.headers.source_mod,
+        last_sync: DEFAULT_CONFIG.headers.last_sync,
+        last_check: DEFAULT_CONFIG.headers.last_check,
+        skip_reason: DEFAULT_CONFIG.headers.skip_reason
+      },
       lastModSchedules: [],
       dataRanges: []
     };
@@ -148,11 +178,7 @@ function saveUserConfig(payload) {
     if (payload.lmSchedulesJson) {
       try {
         var raw = JSON.parse(payload.lmSchedulesJson);
-        if (Array.isArray(raw)) {
-          newConfig.lastModSchedules = raw.map(function(s) {
-            return { maxAgeDays: toNum(s.maxAgeDays, 0), intervalVal: Math.max(1, toNum(s.intervalVal, 1)), intervalUnit: s.intervalUnit || "Hours", active: s.active === true || s.active === "true" };
-          });
-        }
+        newConfig.lastModSchedules = normalizeLastModSchedules(raw);
       } catch (e) {
         console.warn("saveUserConfig: lmSchedulesJson parse failed: " + (e && e.message ? e.message : String(e)));
       }
@@ -184,16 +210,47 @@ function validateConfig(config) {
 }
 
 /**
- * Validates source name: whitelist a-z, A-Z, 0-9, _ only; 1-31 chars after trim.
+ * Validates Google Sheets table/sheet name (letter or underscore first; letters, digits, underscore).
+ * @param {string} name
+ * @returns {{ valid: boolean, message?: string }}
+ */
+function isValidTableName(name) {
+  var s = (name != null ? String(name) : "").trim();
+  if (s.length === 0) return { valid: false, message: "Name is required." };
+  if (s.length > 31) return { valid: false, message: "Name must be 1–31 characters and follow Google Sheets table naming rules." };
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(s)) {
+    return { valid: false, message: "Name must start with a letter or underscore and contain only letters, digits, and underscore (_). See Google Sheets table naming rules." };
+  }
+  return { valid: true };
+}
+
+/**
+ * Validates source name (same rules as table name).
  * @param {string} name - Raw source name.
  * @returns {{ valid: boolean, message?: string }}
  */
 function validateSourceName(name) {
-  var s = (name != null ? String(name) : "").trim();
-  if (s.length === 0) return { valid: false, message: "Source name is required." };
-  if (s.length > 31) return { valid: false, message: "Name may only contain letters (a–z, A–Z), digits (0–9), and underscore (_)." };
-  if (!/^[a-zA-Z0-9_]+$/.test(s)) return { valid: false, message: "Name may only contain letters (a–z, A–Z), digits (0–9), and underscore (_)." };
-  return { valid: true };
+  return isValidTableName(name);
+}
+
+/**
+ * Normalizes schedule config to a single entry without maxAgeDays.
+ * @param {Array<Object>|Object|null} raw
+ * @returns {Array<Object>}
+ */
+function normalizeLastModSchedules(raw) {
+  var list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  if (list.length === 0) return [];
+  var pick = null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && (list[i].active === true || list[i].active === "true")) { pick = list[i]; break; }
+  }
+  if (!pick) pick = list[0];
+  return [{
+    intervalVal: Math.max(1, parseInt(pick.intervalVal, 10) || 1),
+    intervalUnit: pick.intervalUnit || "Hours",
+    active: pick.active === true || pick.active === "true"
+  }];
 }
 
 /**
@@ -308,17 +365,22 @@ function checkSystemHealth(clientConfig) {
 }
 
 /**
- * Default header row for control (urls) sheet: sheet_id, last_modified_datetime, last_update_datetime (from config.headers).
+ * Default header row for control (urls) sheet (from config.headers).
  */
 function getControlDefaultHeaders(config) {
   var h = (config && config.headers) ? config.headers : DEFAULT_CONFIG.headers;
-  return [h.id || CONTROL_HEADER_ID, h.last_mod || DEFAULT_CONFIG.headers.last_mod, h.last_upd || DEFAULT_CONFIG.headers.last_upd];
+  return CONTROL_TABLE_COL_NAMES.map(function(name) {
+    if (name === "sheet_id") return h.id || CONTROL_HEADER_ID;
+    if (name === "source_last_modified_date") return h.source_mod || DEFAULT_CONFIG.headers.source_mod;
+    if (name === "last_successful_sync_date") return h.last_sync || DEFAULT_CONFIG.headers.last_sync;
+    if (name === "last_check_date") return h.last_check || DEFAULT_CONFIG.headers.last_check;
+    if (name === "skip_reason") return h.skip_reason || DEFAULT_CONFIG.headers.skip_reason;
+    return name;
+  });
 }
 
-/**
- * Control sheet column count (sheet_id, last_modified_datetime, last_update_datetime).
- */
-var CONTROL_COL_COUNT = 3;
+/** Control table column count. */
+var CONTROL_COL_COUNT = 5;
 /**
  * Log sheet column count (LOG_HEADERS length).
  */
@@ -329,6 +391,17 @@ var LOG_COL_COUNT = 6;
  * @param {Object} clientConfig
  * @returns {{ control: string, logs: string, setup: string }}|{{ status: Object, tableError: string }}
  */
+/**
+ * Activates the control (urls) sheet in the spreadsheet UI.
+ * @param {Object} cfg
+ */
+function activateControlSheet(cfg) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var name = (cfg && cfg.controlSheetName) ? cfg.controlSheetName : DEFAULT_CONFIG.controlSheetName;
+  var sheet = ss.getSheetByName(name);
+  if (sheet) ss.setActiveSheet(sheet);
+}
+
 function provisionSystem(clientConfig) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ssId = ss.getId();
@@ -342,6 +415,14 @@ function provisionSystem(clientConfig) {
     console.error("provisionSystem ensureTablesExist: " + tableError);
     if (e && e.stack) console.error(e.stack);
   }
+  SpreadsheetApp.flush();
+  if (!tableError) {
+    try {
+      activateControlSheet(cfg);
+    } catch (e) {
+      console.warn("provisionSystem activateControlSheet: " + (e && e.message ? e.message : String(e)));
+    }
+  }
   var status = getSystemStatus(cfg);
   if (tableError) return { status: status, tableError: tableError };
   return status;
@@ -350,8 +431,73 @@ function provisionSystem(clientConfig) {
 /**
  * Column names for table columnProperties (control, logs).
  */
-var CONTROL_TABLE_COL_NAMES = ["sheet_id", "last_modified_datetime", "last_update_datetime"];
+var CONTROL_TABLE_COL_NAMES = [
+  "sheet_id",
+  "source_last_modified_date",
+  "last_successful_sync_date",
+  "last_check_date",
+  "skip_reason"
+];
+var CONTROL_DATE_COL_NAMES = [
+  "source_last_modified_date",
+  "last_successful_sync_date",
+  "last_check_date"
+];
 var LOG_TABLE_COL_NAMES = ["Timestamp", "Sheet ID", "Mode", "Status", "Total Rows", "Details"];
+
+/**
+ * Writes row 1 header labels so SpreadsheetApp status checks see them (addTable columnProperties alone may leave cells empty).
+ * @param {string} ssId
+ * @param {string} sheetName
+ * @param {Array<string>} headers
+ * @param {number} maxRetries
+ */
+function writeSheetHeaderRow(ssId, sheetName, headers, maxRetries) {
+  if (!headers || headers.length === 0) return;
+  var endCol = columnToLetter(headers.length);
+  var safeName = String(sheetName).replace(/'/g, "''");
+  var range = "'" + safeName + "'!A1:" + endCol + "1";
+  callWithRetry(function() {
+    return Sheets.Spreadsheets.Values.update(
+      { values: [headers] },
+      ssId,
+      range,
+      { valueInputOption: "RAW" }
+    );
+  }, maxRetries);
+}
+
+/**
+ * @param {GoogleAppsScript.Spreadsheet.Sheet|null} sheet
+ * @param {function(Array<string>): boolean} headerOk
+ * @returns {boolean}
+ */
+function sheetHeaderRowOk(sheet, headerOk) {
+  if (!sheet) return false;
+  var lastCol = sheet.getLastColumn();
+  if (lastCol === 0) return false;
+  var row1 = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(c) {
+    return c !== null && c !== undefined ? String(c).trim() : "";
+  });
+  return headerOk(row1);
+}
+
+/**
+ * Ensures row 1 contains expected header labels when the named table already exists.
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string} ssId
+ * @param {string} sheetName
+ * @param {Array<string>} headers
+ * @param {function(Array<string>): boolean} headerOk
+ * @param {number} maxRetries
+ */
+function ensureHeaderRowIfNeeded(ss, ssId, sheetName, headers, headerOk, maxRetries) {
+  SpreadsheetApp.flush();
+  var sheet = ss.getSheetByName(sheetName);
+  if (sheetHeaderRowOk(sheet, headerOk)) return;
+  writeSheetHeaderRow(ssId, sheetName, headers, maxRetries);
+  SpreadsheetApp.flush();
+}
 
 /**
  * Returns true if in meta there is a sheet with title sheetName that has a table with name tableName.
@@ -389,13 +535,30 @@ function ensureTablesExist(ss, ssId, cfg, maxRetries) {
     return Sheets.Spreadsheets.get(ssId, { fields: "sheets(properties(sheetId,title),tables)" });
   }, maxRetries);
   if (!meta.sheets) return;
+  var controlIdHeader = cfg.headers && cfg.headers.id ? cfg.headers.id : CONTROL_HEADER_ID;
   var components = [
-    { sheetName: cfg.controlSheetName, tableName: cfg.controlTableName, colCount: CONTROL_COL_COUNT, colNames: CONTROL_TABLE_COL_NAMES },
-    { sheetName: cfg.logSheetName, tableName: cfg.logTableName, colCount: LOG_COL_COUNT, colNames: LOG_TABLE_COL_NAMES }
+    {
+      sheetName: cfg.controlSheetName,
+      tableName: cfg.controlTableName,
+      colCount: CONTROL_COL_COUNT,
+      getHeaders: function() { return getControlDefaultHeaders(cfg); },
+      headerOk: function(row1) { return row1 && row1.indexOf(controlIdHeader) !== -1; }
+    },
+    {
+      sheetName: cfg.logSheetName,
+      tableName: cfg.logTableName,
+      colCount: LOG_COL_COUNT,
+      getHeaders: function() { return LOG_TABLE_COL_NAMES.slice(); },
+      headerOk: function(row1) { return row1 && LOG_HEADERS.every(function(h) { return row1.indexOf(h) !== -1; }); }
+    }
   ];
   var errors = [];
   components.forEach(function(c) {
-    if (tableExistsInMeta(meta, c.sheetName, c.tableName)) return;
+    var headers = c.getHeaders();
+    if (tableExistsInMeta(meta, c.sheetName, c.tableName)) {
+      ensureHeaderRowIfNeeded(ss, ssId, c.sheetName, headers, c.headerOk, maxRetries);
+      return;
+    }
     var sheet = ss.getSheetByName(c.sheetName);
     var sheetId;
     if (!sheet) {
@@ -409,6 +572,7 @@ function ensureTablesExist(ss, ssId, cfg, maxRetries) {
         return;
       }
       sheetId = addSheetRes.replies[0].addSheet.properties.sheetId;
+      SpreadsheetApp.flush();
     } else {
       if (sheet.getLastRow() > 1) {
         errors.push(c.sheetName + ": sheet has data, cannot create table");
@@ -416,16 +580,13 @@ function ensureTablesExist(ss, ssId, cfg, maxRetries) {
       }
       sheetId = sheet.getSheetId();
     }
-    /* last_modified_datetime and last_update_datetime use TEXT so the script's "yyyy-MM-dd HH:mm:ss" string displays as-is (consistent format). */
     var colProps = [];
-    var dateTimeColNames = ["last_modified_datetime", "last_update_datetime"];
     for (var k = 0; k < c.colCount; k++) {
-      var colName = (c.colNames && c.colNames[k]) ? c.colNames[k] : "Column " + (k + 1);
-      var colType = (dateTimeColNames.indexOf(colName) !== -1) ? "TEXT" : "TEXT";
+      var colName = (headers && headers[k]) ? headers[k] : "Column " + (k + 1);
       colProps.push({
         columnIndex: k,
         columnName: colName,
-        columnType: colType
+        columnType: "TEXT"
       });
     }
     try {
@@ -448,6 +609,8 @@ function ensureTablesExist(ss, ssId, cfg, maxRetries) {
           }]
         }, ssId);
       }, maxRetries);
+      writeSheetHeaderRow(ssId, c.sheetName, headers, maxRetries);
+      SpreadsheetApp.flush();
     } catch (e) {
       var msg = e && e.message ? e.message : String(e);
       errors.push(c.tableName + ": " + msg);
@@ -500,7 +663,12 @@ function ensureLogsTableExist(ss, ssId, cfg, maxRetries) {
   var meta = callWithRetry(function() {
     return Sheets.Spreadsheets.get(ssId, { fields: "sheets(properties(sheetId,title),tables)" });
   }, maxRetries);
-  if (meta.sheets && tableExistsInMeta(meta, c.sheetName, c.tableName)) return;
+  if (meta.sheets && tableExistsInMeta(meta, c.sheetName, c.tableName)) {
+    ensureHeaderRowIfNeeded(ss, ssId, c.sheetName, c.colNames, function(row1) {
+      return row1 && LOG_HEADERS.every(function(h) { return row1.indexOf(h) !== -1; });
+    }, maxRetries);
+    return;
+  }
   var sheet = ss.getSheetByName(c.sheetName);
   var sheetId;
   if (!sheet) {
@@ -546,4 +714,6 @@ function ensureLogsTableExist(ss, ssId, cfg, maxRetries) {
       }]
     }, ssId);
   }, maxRetries);
+  writeSheetHeaderRow(ssId, c.sheetName, c.colNames, maxRetries);
+  SpreadsheetApp.flush();
 }

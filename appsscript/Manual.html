@@ -57,7 +57,7 @@ pre{background:var(--code-bg);color:var(--code-text);padding:20px;border-radius:
  * All logic resides in the SmartSync Library.
  */
 function onOpen() { runLibrary('onOpen'); }
-function runAutoSync() { runLibrary('runAutoSync'); }
+function runAutoSync() { runLibrary('runCheckAndSync'); }
 function showSettings() { runLibrary('showSettings'); }
 function updateLastModified() { runLibrary('updateLastModified'); }
 function scheduledLastModifiedCheck() { runLibrary('processScheduledWorkflow', null, true); }
@@ -86,18 +86,17 @@ function testConnection() {
 <ol>
 <li>Refresh your spreadsheet browser tab.</li>
 <li>Open <strong>Smart Sync</strong> &rarr; <strong>Settings</strong>.</li>
-<li>Under <strong>Setup</strong>, open Source Files: click <strong>Check</strong>, then <strong>Create</strong> if needed to create the control sheet and table.</li>
-<li>Under <strong>Advanced Options</strong>, open Logs: click <strong>Check</strong>, then <strong>Create</strong> if needed to create the logs sheet.</li>
-<li>Add at least one <strong>Data Range</strong> (name and source range). Save.</li>
+<li>Click <strong>Initiate</strong> to create the <strong>Source Files</strong> (<code>urls</code>) and <strong>Logs</strong> sheets and tables.</li>
+<li>After initiation, add at least one <strong>Data Range</strong> (name and source range) under <strong>Setup</strong>, then click <strong>Save Changes</strong>.</li>
 </ol>
 </div>
 
 <!-- Usage (generic) -->
 <div class="card">
 <h2>Using Smart Sync</h2>
-<p><strong>Menu:</strong> <strong>Smart Sync</strong> &rarr; <strong>Run Auto Sync</strong> runs the sync now. <strong>Settings</strong> opens the sidebar to configure sources, data ranges, schedules, and options.</p>
+<p><strong>Menu:</strong> <strong>Smart Sync</strong> &rarr; <strong>Run Auto Sync</strong> checks sources then syncs. <strong>Settings</strong> opens the sidebar to configure sources, data ranges, schedules, and options.</p>
 <p><strong>Source list (urls sheet):</strong> Put Google Sheet IDs or URLs in the <code>sheet_id</code> column. Sync only runs for rows that are out of date (or never synced).</p>
-<p><strong>Data Ranges (Settings):</strong> Each entry defines a source range to sync into a sheet/table in this spreadsheet. After saving, run <strong>Check</strong> under Setup to refresh status, then <strong>Sync</strong> from Execute to run the sync.</p>
+<p><strong>Data Ranges (Settings):</strong> Each entry defines a source range to sync into a sheet/table in this spreadsheet. After saving, use <strong>Check</strong> under Setup to refresh status, then <strong>Sync</strong> from Execute to check sources and copy data.</p>
 </div>
 
 <!-- Details at the end -->
@@ -108,15 +107,17 @@ function testConnection() {
 <p>Default sheet name is <code>urls</code>. Row 1 is the header. Required columns:</p>
 <ul>
 <li><strong>sheet_id</strong> &mdash; Google Sheet ID or full URL of the source spreadsheet.</li>
-<li><strong>last_modified_datetime</strong> &mdash; Filled by &ldquo;Check&rdquo; (last-modified date from Drive).</li>
-<li><strong>last_update_datetime</strong> &mdash; Updated by the script after each sync (or &ldquo;Error&rdquo; on failure).</li>
+<li><strong>source_last_modified_date</strong> &mdash; TEXT. Source file modified time from Drive (<code>yyyy-MM-dd HH:mm:ss</code>). Empty if check failed or file missing.</li>
+<li><strong>last_successful_sync_date</strong> &mdash; TEXT. Set after successful sync only. Empty if never synced or sync failed.</li>
+<li><strong>last_check_date</strong> &mdash; TEXT. When this row was last checked.</li>
+<li><strong>skip_reason</strong> &mdash; TEXT. If not empty, row is skipped in check and sync (e.g. file not found, sync error). Clear manually to retry.</li>
 </ul>
-<p>Sync runs only for rows where <code>sheet_id</code> is set and the source is newer than <code>last_update_datetime</code> (or never synced).</p>
+<p>Sync runs when <code>source_last_modified_date</code> is newer than <code>last_successful_sync_date</code> (or sync date is empty), and <code>skip_reason</code> is empty.</p>
 
 <h3>Data Ranges (Settings)</h3>
 <p>Each data range has:</p>
 <ul>
-<li><strong>Name</strong> (required) &mdash; Identifier for the target sheet/table (letters, digits, underscore only).</li>
+<li><strong>Name</strong> (required) &mdash; Identifier for the target sheet/table. Must start with a letter or underscore; then letters, digits, underscore only (Google Sheets table naming rules).</li>
 <li><strong>Source Range</strong> (required) &mdash; A1 range in the source sheet to sync (e.g. <code>Sheet1!A1:D</code>).</li>
 <li><strong>Not empty column</strong> (optional) &mdash; Column name used to trim trailing empty rows.</li>
 </ul>
@@ -124,9 +125,9 @@ function testConnection() {
 
 <h3>Settings sidebar</h3>
 <ul>
-<li><strong>Execute</strong> &mdash; <strong>Check</strong> runs the last-modified date check (optional max age in days). <strong>Sync</strong> runs the full sync. Both are enabled when Setup is OK.</li>
-<li><strong>Sync Schedules</strong> &mdash; Add schedules (max age, interval, active). Active schedules create time-based triggers to run the last-modified check; sync can then be run manually or by your own trigger.</li>
-<li><strong>Setup</strong> (collapsible) &mdash; <strong>Source Files</strong>: Check/Create for the urls sheet and table. <strong>Data Ranges</strong>: Add or edit data range entries.</li>
+<li><strong>Execute</strong> &mdash; <strong>Sync</strong> checks every source then copies data for rows that need updating. Enabled when Setup is OK.</li>
+<li><strong>Sync Schedule</strong> &mdash; One schedule (interval, active). When active, creates a time-based trigger that runs check then sync.</li>
+<li><strong>Setup</strong> (collapsible) &mdash; <strong>Data Ranges</strong>: Add or edit data range entries. The <code>urls</code> sheet is created by <strong>Initiate</strong>.</li>
 <li><strong>Advanced Options</strong> (collapsible) &mdash; <strong>Logs</strong>: Check/Create for the logs sheet; <strong>Logs level</strong> (None, Errors, Warnings, Basic, All); <strong>Max log rows</strong> (0 = no limit). <strong>Performance</strong>: Sleep time (ms) between API calls, API retries.</li>
 </ul>
 
@@ -134,7 +135,7 @@ function testConnection() {
 <p>Sync and last-modified check results can be written to the <strong>logs</strong> sheet. <strong>Logs level</strong> controls what is logged (None, Errors only, Warnings, Basic, or All). <strong>Max log rows</strong> caps how many data rows are kept; oldest rows are removed when the limit is exceeded. Set to 0 for no limit.</p>
 
 <h3>Last-modified checks and triggers</h3>
-<p><strong>Check</strong> (Execute or scheduled) reads last-modified dates from Drive for each source and updates the urls sheet. It does not run sync. <strong>Sync</strong> uses those dates to decide which sources to sync. When you add active <strong>Sync Schedules</strong>, the library creates time-based triggers that run the check on the chosen interval; you can then run <strong>Run Auto Sync</strong> (or call <code>runAutoSync</code>) manually or from another trigger after the check.</p>
+<p><strong>Sync</strong> (Execute or menu) runs check then data copy. Errors are recorded in <code>skip_reason</code>; date columns stay empty on failure. An active <strong>Sync Schedule</strong> runs the same flow on the chosen interval.</p>
 </div>
 
 <div class="footer" id="manualFooter">

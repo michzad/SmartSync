@@ -268,6 +268,10 @@ function ensureInfrastructure(ssId, config, targetState, settings) {
 
   for (const [tableName, cfg] of Object.entries(config)) {
     const sheetName = cfg.sheet_name;
+    const nameCheck = typeof isValidTableName === "function" ? isValidTableName(sheetName) : { valid: true };
+    if (!nameCheck.valid) {
+      throw new Error("Invalid table name \"" + sheetName + "\": " + (nameCheck.message || "See Google Sheets table naming rules."));
+    }
     if (!targetState.sheets.has(sheetName) && !createdSheetNames.has(sheetName)) {
       console.log("[Setup] Queueing creation for missing sheet: \"" + sheetName + "\"");
       sheetCreationRequests.push({

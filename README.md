@@ -38,7 +38,47 @@ For adding SmartSync as a library to your spreadsheet:
 1. Open your spreadsheet → **Extensions** → **Apps Script**.
 2. **+** next to **Libraries** → paste the SmartSync **Script ID** (from the Manual or your publisher) → **Look up** → add **SmartSync** (identifier), select latest version → **Add**.
 3. Enable **Google Sheets API** and **Drive API** in the **client** project: **Resources** → **Advanced Google Services** → turn both ON; then open the Google Cloud Console link and enable the same APIs for this project.
-4. Paste the client wrapper from the Manual into your script’s `Code.gs` (the snippet that defines `onOpen`, `runAutoSync`, `showSettings`, `runLibrary`, etc.).
+4. Paste the **client wrapper** below into your script’s `Code.gs` (replace any existing content, or merge if you already have other handlers):
+
+```javascript
+/**
+ * SMART SYNC - CLIENT SIDE WRAPPER
+ * All logic resides in the SmartSync Library.
+ */
+function onOpen() { runLibrary('onOpen'); }
+function runAutoSync() { runLibrary('runCheckAndSync'); }
+function showSettings() { runLibrary('showSettings'); }
+function updateLastModified() { runLibrary('updateLastModified'); }
+function scheduledLastModifiedCheck() { runLibrary('processScheduledWorkflow', null, true); }
+function runLibrary(func, arg, rethrow) {
+  var ss = SpreadsheetApp.getActive();
+  if (typeof SmartSync === 'undefined') {
+    var msg = "Library 'SmartSync' missing. Fix in Extensions > Libraries.";
+    if (rethrow) throw new Error(msg);
+    ss.toast(msg, "Setup Error", 3);
+    return;
+  }
+  try {
+    return SmartSync[func](arg);
+  } catch (e) {
+    if (rethrow) throw e;
+    ss.toast(e.message, "Error", 3);
+  }
+}
+function testConnection() {
+  if (typeof SmartSync === 'undefined') SpreadsheetApp.getActive().toast("Library Missing", "Error", 3);
+  else try {
+    var v = SmartSync.getLibraryVersion();
+    SpreadsheetApp.getActive().toast("Connected: v" + v, "Success", 3);
+  } catch (e) {
+    SpreadsheetApp.getActive().toast(e.message, "Error", 3);
+  }
+}
+```
+
+5. Save the script, reload the spreadsheet tab, then open **Smart Sync** → **Settings**. On first run, click **Initiate** to create the `urls` and `logs` sheets/tables, then configure data ranges and **Save Changes**.
+
+The same snippet is also available in the deployed **Manual** (`Manual.html`, step 3).
 
 **Important:** Library code runs in the **client project’s context**. The **client** script must enable the same advanced services; enabling them only in the library project is not enough.
 

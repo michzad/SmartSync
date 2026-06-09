@@ -41,10 +41,26 @@ function showSettings() {
   SpreadsheetApp.getUi().showSidebar(HtmlService.createHtmlOutputFromFile("Settings").setTitle("Smart Sync Settings"));
 }
 
+/**
+ * Check (Drive dates) then sync rows flagged by that check. Entry point for Execute and menu.
+ * @returns {string}
+ */
+function runCheckAndSync() {
+  var config = getUserConfig();
+  var result = performCheck(config);
+  if (!result || !result.success) {
+    throw new Error("Check failed. Sync aborted.");
+  }
+  runAutoSync({ sinceLastCheck: true });
+  var s = result.stats;
+  return "Sync completed. Checked: " + s.checked + ", Changed: " + s.changed + ", Errors: " + s.errors;
+}
+
 function runAutoSync(options) {
   options = options || {};
   var settings = getUserConfig();
   for (var k in options) if (options.hasOwnProperty(k)) settings[k] = options[k];
+  var sinceLastCheck = options.sinceLastCheck === true;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ssId = ss.getId();
   var config = getDataRangesConfig(settings);
@@ -52,16 +68,31 @@ function runAutoSync(options) {
   var urlData = getTableDataByName(settings.controlTableName, settings.maxApiRetries);
   if (!urlData || urlData.length === 0) { console.warn("No data in control table."); return; }
   var h = settings.headers;
-  var requiredKeys = [h.id, h.last_mod, h.last_upd];
-  if (!requiredKeys.every(function(k) { return Object.prototype.hasOwnProperty.call(urlData[0], k); })) {
-    throw new Error("Control table header consistency failed: expected columns " + requiredKeys.join(", ") + ". Check the urls sheet row 1.");
+  var requiredKeys = [h.id, h.source_mod, h.last_sync, h.last_check, h.skip_reason];
+  if (!requiredKeys.every(function(k) { return k && Object.prototype.hasOwnProperty.call(urlData[0], k); })) {
+    throw new Error("Control table header consistency failed: expected columns " + requiredKeys.join(", ") + ". Recreate the control table from Settings.");
   }
   var targetState = fetchSmartTargetState(ssId, config, settings.maxApiRetries);
   var queue = buildSyncQueue(urlData, targetState, config, settings);
-  if (queue.length === 0) { console.log("All up to date."); return; }
+  if (sinceLastCheck && typeof getLastCheckPendingIds === "function") {
+    var pendingIds = getLastCheckPendingIds();
+    if (pendingIds.length > 0) {
+      var pendingSet = {};
+      for (var pi = 0; pi < pendingIds.length; pi++) pendingSet[pendingIds[pi]] = true;
+      queue = queue.filter(function(item) { return pendingSet[item.sheetId]; });
+    } else {
+      queue = [];
+    }
+  }
+  if (queue.length === 0) {
+    console.log("All up to date.");
+    if (typeof setLastSyncTimestamp === "function") setLastSyncTimestamp();
+    return;
+  }
   ensureInfrastructure(ssId, config, targetState, settings);
   ensureLogSheetViaApi(ssId, settings.logSheetName, settings.maxApiRetries);
   SpreadsheetApp.flush();
+  var hadErrors = false;
   for (var i = 0; i < queue.length; i++) {
     var item = queue[i];
     console.log("Processing " + item.sheetId + " Mode: " + item.mode);
@@ -69,19 +100,25 @@ function runAutoSync(options) {
       var sourceValuesMap = readAndTrimSourceData(item.sheetId, config, settings.maxApiRetries);
       var result = masterSync(item.sheetId, config, item.mode, targetState, ssId, sourceValuesMap, settings);
       var analyzed = analyzeSyncResult(result);
+      if (analyzed.hasError) hadErrors = true;
       if (shouldLogInMain(settings, analyzed.hasError, analyzed.logDetails)) {
         logResult(ss, settings.logSheetName, item, analyzed.hasError, analyzed.totalRows, analyzed.logDetails, settings.maxLogRows);
       }
-      updateTimestamp(settings.controlSheetName, item.rowIndex, analyzed.hasError, settings.headers);
+      updateRowAfterSync(settings.controlSheetName, item.rowIndex, settings.headers, analyzed.hasError, analyzed.hasError ? analyzed.logDetails : "");
     } catch (e) {
-      console.error("FAILURE " + item.sheetId + ": " + (e && e.message ? e.message : String(e)));
+      hadErrors = true;
+      var critMsg = e && e.message ? e.message : String(e);
+      console.error("FAILURE " + item.sheetId + ": " + critMsg);
       if (e && e.stack) console.error(e.stack);
-      if (shouldLogInMain(settings, true, "CRITICAL: " + e.message)) {
-        logResult(ss, settings.logSheetName, item, true, 0, "CRITICAL: " + e.message, settings.maxLogRows);
+      if (shouldLogInMain(settings, true, "CRITICAL: " + critMsg)) {
+        logResult(ss, settings.logSheetName, item, true, 0, "CRITICAL: " + critMsg, settings.maxLogRows);
       }
-      updateTimestamp(settings.controlSheetName, item.rowIndex, true, settings.headers);
+      updateRowAfterSync(settings.controlSheetName, item.rowIndex, settings.headers, true, critMsg);
     }
     Utilities.sleep(settings.sleepTimeMs);
+  }
+  if (!hadErrors && typeof setLastSyncTimestamp === "function") {
+    setLastSyncTimestamp();
   }
 }
 
@@ -98,20 +135,27 @@ function getSourceIdFromRow(row) {
 }
 
 /**
- * Określa potrzebę synchronizacji dla wiersza tabeli kontrolnej (błędy + daty).
- * Zwraca "no_action" (błąd lub źródło aktualne) albo "need_work" (trzeba sync lub append; sync vs append ustala porównanie z destination).
- * @param {string} lastModValue - last_modified_datetime from control table.
- * @param {string} lastUpdValue - last_update_datetime from control table.
- * @returns {"no_action"|"need_work"} "no_action" gdy błąd lub modyfikacja <= last update; "need_work" gdy trzeba odświeżyć lub dodać.
+ * Określa potrzebę synchronizacji dla wiersza tabeli kontrolnej.
+ * @param {string} sourceModValue - source_last_modified_date
+ * @param {string} lastSyncValue - last_successful_sync_date
+ * @param {string} skipReason - skip_reason (non-empty → skip)
+ * @returns {"no_action"|"need_work"}
  */
-function getSyncNeed(lastModValue, lastUpdValue) {
-  var updStr = (lastUpdValue != null && typeof lastUpdValue === "string") ? lastUpdValue.trim() : "";
-  if (updStr === "Error" || updStr === "") {
-    return updStr === "Error" ? "no_action" : "need_work";
+function getSyncNeed(sourceModValue, lastSyncValue, skipReason) {
+  if (typeof isRowSkipped === "function" && isRowSkipped(skipReason)) {
+    return "no_action";
   }
-  var modDate = new Date(lastModValue);
-  var updDate = new Date(lastUpdValue);
-  if (isValidDate(modDate) && isValidDate(updDate) && updDate < modDate) return "need_work";
+  var src = typeof normalizeControlDateCell === "function"
+    ? normalizeControlDateCell(sourceModValue)
+    : (sourceModValue != null ? String(sourceModValue).trim() : "");
+  var sync = typeof normalizeControlDateCell === "function"
+    ? normalizeControlDateCell(lastSyncValue)
+    : (lastSyncValue != null ? String(lastSyncValue).trim() : "");
+  if (!src) return "no_action";
+  if (!sync) return "need_work";
+  var modDate = new Date(src);
+  var syncDate = new Date(sync);
+  if (isValidDate(modDate) && isValidDate(syncDate) && syncDate < modDate) return "need_work";
   return "no_action";
 }
 
@@ -131,7 +175,8 @@ function buildSyncQueue(urlData, targetState, config, settings) {
     var row = urlData[i];
     var rawId = row[h.id];
     if (!rawId) continue;
-    var need = getSyncNeed(row[h.last_mod], row[h.last_upd]);
+    if (typeof isRowSkipped === "function" && isRowSkipped(row[h.skip_reason])) continue;
+    var need = getSyncNeed(row[h.source_mod], row[h.last_sync], row[h.skip_reason]);
     if (need === "no_action") continue;
     candidates.push({ sheetId: extractIdFromUrl(rawId), rawId: rawId, rowIndex: row._rowIndex });
   }
